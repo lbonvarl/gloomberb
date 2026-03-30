@@ -3,13 +3,21 @@ import type { PluginRegistry } from "../plugins/registry";
 import type { BrokerAdapter } from "../types/broker";
 import type { AppConfig } from "../types/config";
 import { createDefaultConfig } from "../types/config";
-import type { DataProvider, MarketDataRequestContext, NewsItem, SearchRequestContext, SecFilingItem } from "../types/data-provider";
+import type {
+  DataProvider,
+  MarketDataRequestContext,
+  NewsItem,
+  QuoteSubscriptionTarget,
+  SearchRequestContext,
+  SecFilingItem,
+} from "../types/data-provider";
 import type { OptionsChain, PricePoint, Quote, TickerFinancials } from "../types/financials";
 import type { BrokerContractRef, InstrumentSearchResult } from "../types/instrument";
 import type { CachePolicy, CachePolicyMap } from "../types/persistence";
 import type { TimeRange } from "../components/chart/chart-types";
 import type { HydrationTarget } from "../state/session-persistence";
 import { debugLog } from "../utils/debug-log";
+import { isProviderMiss } from "./provider-errors";
 
 const providerLog = debugLog.createLogger("provider-router");
 
@@ -42,6 +50,7 @@ function withBrokerTimeout<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 function shouldLogProviderError(error: unknown): boolean {
+  if (isProviderMiss(error)) return false;
   const message = error instanceof Error ? error.message : String(error);
   return !EXPECTED_PROVIDER_MISS.test(message);
 }
@@ -125,32 +134,45 @@ function hasLikelyPriceUnitMismatch(primary: TickerFinancials, fallback: TickerF
 }
 
 function mergeFinancials(primary: TickerFinancials | null, fallback: TickerFinancials | null): TickerFinancials | null {
+  const mergedProfile = {
+    ...(fallback?.profile ?? {}),
+    ...(primary?.profile ?? {}),
+  };
+
   if (primary && hasMeaningfulFundamentals(primary)) {
     if (fallback && hasLikelyPriceUnitMismatch(primary, fallback)) {
       return {
         ...primary,
         quote: fallback.quote ?? primary.quote,
         priceHistory: fallback.priceHistory.length > 0 ? fallback.priceHistory : primary.priceHistory,
-        profile: primary.profile ?? fallback.profile,
+        profile: Object.keys(mergedProfile).length > 0 ? mergedProfile : undefined,
       };
     }
-    if (!primary.profile && fallback?.profile) {
-      return { ...primary, profile: fallback.profile };
+    if (fallback) {
+      return {
+        ...primary,
+        profile: Object.keys(mergedProfile).length > 0 ? mergedProfile : undefined,
+      };
     }
     return primary;
   }
   if (primary && fallback) {
     const preferFallbackPriceData = hasLikelyPriceUnitMismatch(primary, fallback);
+    const mergedFundamentals = {
+      ...(fallback.fundamentals ?? {}),
+      ...(primary.fundamentals ?? {}),
+    };
     return {
       ...fallback,
       ...primary,
       quote: preferFallbackPriceData ? (fallback.quote ?? primary.quote) : (primary.quote ?? fallback.quote),
+      profile: Object.keys(mergedProfile).length > 0 ? mergedProfile : undefined,
+      fundamentals: Object.keys(mergedFundamentals).length > 0 ? mergedFundamentals : undefined,
       priceHistory: preferFallbackPriceData
         ? (fallback.priceHistory.length > 0 ? fallback.priceHistory : primary.priceHistory)
         : (primary.priceHistory.length > 0 ? primary.priceHistory : fallback.priceHistory),
-      fundamentals: fallback.fundamentals ?? primary.fundamentals ?? {},
-      annualStatements: fallback.annualStatements.length > 0 ? fallback.annualStatements : primary.annualStatements,
-      quarterlyStatements: fallback.quarterlyStatements.length > 0 ? fallback.quarterlyStatements : primary.quarterlyStatements,
+      annualStatements: primary.annualStatements.length > 0 ? primary.annualStatements : fallback.annualStatements,
+      quarterlyStatements: primary.quarterlyStatements.length > 0 ? primary.quarterlyStatements : fallback.quarterlyStatements,
     };
   }
   return primary ?? fallback;
@@ -179,7 +201,7 @@ export class ProviderRouter implements DataProvider {
   private getConfigFn: () => AppConfig = () => createDefaultConfig("");
 
   constructor(
-    private readonly fallbackProvider: DataProvider,
+    private readonly fallbackProvider: DataProvider | null = null,
     private readonly extraProviders: DataProvider[] = [],
     private readonly resources?: ResourceStore,
   ) {}
@@ -195,10 +217,16 @@ export class ProviderRouter implements DataProvider {
   async canProvide(ticker: string, exchange?: string, context?: MarketDataRequestContext): Promise<boolean> {
     const brokerQuote = await withBrokerTimeout(this.fetchBrokerQuote(ticker, exchange, context));
     if (brokerQuote) return true;
-    if (this.fallbackProvider.canProvide) {
-      return this.fallbackProvider.canProvide(ticker, exchange, context);
+    for (const provider of this.providersInPriorityOrder()) {
+      try {
+        if (!provider.canProvide || await provider.canProvide(ticker, exchange, context)) {
+          return true;
+        }
+      } catch {
+        // continue through provider chain
+      }
     }
-    return true;
+    return false;
   }
 
   getCachedFinancialsForTargets(targets: HydrationTarget[], options: { allowExpired?: boolean } = {}): Map<string, TickerFinancials> {
@@ -279,10 +307,15 @@ export class ProviderRouter implements DataProvider {
       return cached;
     }
 
-    const provider = [...this.sortedProviders(), this.fallbackProvider][0] ?? this.fallbackProvider;
-    const rate = await provider.getExchangeRate(fromCurrency);
-    this.cacheExchangeRate(fromCurrency, rate, provider);
-    return rate;
+    const result = await this.firstProvider(async (provider) => {
+      const rate = await provider.getExchangeRate(fromCurrency);
+      return { provider, rate };
+    });
+    if (!result) {
+      throw new Error(`No exchange rate provider available for ${fromCurrency}`);
+    }
+    this.cacheExchangeRate(fromCurrency, result.value.rate, result.value.provider);
+    return result.value.rate;
   }
 
   async search(query: string, context?: SearchRequestContext): Promise<InstrumentSearchResult[]> {
@@ -322,7 +355,7 @@ export class ProviderRouter implements DataProvider {
       }
     }
 
-    for (const provider of [...this.sortedProviders(), this.fallbackProvider]) {
+    for (const provider of this.providersInPriorityOrder()) {
       searchPromises.push(
         provider.search(query, context)
           .then((items) => push(items))
@@ -350,10 +383,15 @@ export class ProviderRouter implements DataProvider {
       return cached.value;
     }
 
-    const provider = [...this.sortedProviders(), this.fallbackProvider][0] ?? this.fallbackProvider;
-    const items = await provider.getNews(ticker, count, exchange, context);
-    this.cacheResource("news", entityKey, variantKeys[0] ?? "", this.providerSourceKey(provider), items, this.resolveProviderPolicy("news", provider));
-    return items;
+    const result = await this.firstProvider((provider) => provider.getNews(ticker, count, exchange, context));
+    if (!result) {
+      throw new Error(`No news provider available for ${ticker}`);
+    }
+    const provider = this.resolveProviderBySourceKey(result.sourceKey);
+    if (provider) {
+      this.cacheResource("news", entityKey, variantKeys[0] ?? "", result.sourceKey, result.value, this.resolveProviderPolicy("news", provider));
+    }
+    return result.value;
   }
 
   async getSecFilings(ticker: string, count = 15, exchange?: string, context?: MarketDataRequestContext): Promise<SecFilingItem[]> {
@@ -405,12 +443,15 @@ export class ProviderRouter implements DataProvider {
       return cached.value;
     }
 
-    const provider = [...this.sortedProviders(), this.fallbackProvider][0] ?? this.fallbackProvider;
-    const summary = await provider.getArticleSummary(url);
-    if (summary) {
-      this.cacheResource("article-summary", entityKey, "", this.providerSourceKey(provider), summary, this.resolveProviderPolicy("articleSummary", provider));
+    const result = await this.firstProvider((provider) => provider.getArticleSummary(url));
+    if (!result) {
+      return null;
     }
-    return summary;
+    const provider = this.resolveProviderBySourceKey(result.sourceKey);
+    if (provider && result.value) {
+      this.cacheResource("article-summary", entityKey, "", result.sourceKey, result.value, this.resolveProviderPolicy("articleSummary", provider));
+    }
+    return result.value;
   }
 
   async getPriceHistory(ticker: string, exchange: string, range: TimeRange, context?: MarketDataRequestContext): Promise<PricePoint[]> {
@@ -544,7 +585,11 @@ export class ProviderRouter implements DataProvider {
   }
 
   private getProviderSourceKeys(): string[] {
-    return [...this.sortedProviders(), this.fallbackProvider].map((provider) => this.providerSourceKey(provider));
+    return this.providersInPriorityOrder().map((provider) => this.providerSourceKey(provider));
+  }
+
+  private firstAvailableProvider(): DataProvider | null {
+    return this.providersInPriorityOrder()[0] ?? null;
   }
 
   private resolvePolicy(overrides: CachePolicyMap | undefined, key: keyof typeof DEFAULT_CACHE_POLICIES): CachePolicy {
@@ -715,15 +760,26 @@ export class ProviderRouter implements DataProvider {
   private sortedProviders(): DataProvider[] {
     const providers = [...this.extraProviders];
     if (this.registry) {
-      providers.push(...this.registry.dataProviders.values());
+      const registryProviders = typeof this.registry.getEnabledDataProviders === "function"
+        ? this.registry.getEnabledDataProviders()
+        : [...this.registry.dataProviders.values()];
+      providers.push(...registryProviders);
     }
     return providers
-      .filter((provider) => provider.id !== this.id && provider.id !== this.fallbackProvider.id)
+      .filter((provider) => provider.id !== this.id && provider.id !== this.fallbackProvider?.id)
       .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   }
 
+  private providersInPriorityOrder(): DataProvider[] {
+    const providers = [...this.sortedProviders()];
+    if (this.fallbackProvider && !providers.some((provider) => provider.id === this.fallbackProvider?.id)) {
+      providers.push(this.fallbackProvider);
+    }
+    return providers;
+  }
+
   private async firstProvider<T>(fn: (provider: DataProvider) => Promise<T | null | undefined>): Promise<SourceResult<T> | null> {
-    for (const provider of [...this.sortedProviders(), this.fallbackProvider]) {
+    for (const provider of this.providersInPriorityOrder()) {
       try {
         const result = await fn(provider);
         if (result != null) return { sourceKey: this.providerSourceKey(provider), value: result };
@@ -775,20 +831,33 @@ export class ProviderRouter implements DataProvider {
   ): Promise<SourceResult<TickerFinancials> | null> {
     const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
     const variantKey = this.getTickerVariantCandidates(exchange)[0] ?? "";
-    const result = await this.firstProvider((provider) => provider.getTickerFinancials(ticker, exchange, context));
-    if (!result) return null;
-    const provider = this.resolveProviderBySourceKey(result.sourceKey);
-    if (provider) {
-      this.cacheResource(
-        "financials",
-        entityKey,
-        variantKey,
-        result.sourceKey,
-        result.value,
-        this.resolveProviderPolicy("financials", provider),
-      );
+    let merged: TickerFinancials | null = null;
+    let firstSourceKey: string | null = null;
+
+    for (const provider of this.providersInPriorityOrder()) {
+      try {
+        const value = await provider.getTickerFinancials(ticker, exchange, context);
+        const sourceKey = this.providerSourceKey(provider);
+        this.cacheResource(
+          "financials",
+          entityKey,
+          variantKey,
+          sourceKey,
+          value,
+          this.resolveProviderPolicy("financials", provider),
+        );
+        merged = mergeFinancials(merged, value);
+        firstSourceKey ??= sourceKey;
+      } catch (error) {
+        if (shouldLogProviderError(error)) {
+          providerLog.error(`${provider.id} failed: ${error}`);
+        }
+      }
     }
-    return result;
+
+    return merged && firstSourceKey
+      ? { sourceKey: firstSourceKey, value: merged }
+      : null;
   }
 
   private async fetchBrokerQuote(
@@ -1028,7 +1097,7 @@ export class ProviderRouter implements DataProvider {
     const variantKey = buildVariantKey([["exchange", normalizeExchange(exchange)], ["count", count]]);
     let lastError: unknown = null;
 
-    for (const provider of [...this.sortedProviders(), this.fallbackProvider]) {
+    for (const provider of this.providersInPriorityOrder()) {
       if (!provider.getSecFilings) continue;
       try {
         const value = await provider.getSecFilings(ticker, count, exchange, context);
@@ -1051,7 +1120,7 @@ export class ProviderRouter implements DataProvider {
     const entityKey = compactUrl(filing.primaryDocumentUrl ?? filing.filingUrl);
     let lastError: unknown = null;
 
-    for (const provider of [...this.sortedProviders(), this.fallbackProvider]) {
+    for (const provider of this.providersInPriorityOrder()) {
       if (!provider.getSecFilingContent) continue;
       try {
         const value = await provider.getSecFilingContent(filing);
@@ -1071,7 +1140,7 @@ export class ProviderRouter implements DataProvider {
   }
 
   private resolveProviderBySourceKey(sourceKey: string): DataProvider | null {
-    for (const provider of [...this.sortedProviders(), this.fallbackProvider]) {
+    for (const provider of this.providersInPriorityOrder()) {
       if (this.providerSourceKey(provider) === sourceKey) return provider;
     }
     return null;
@@ -1093,20 +1162,25 @@ export class ProviderRouter implements DataProvider {
   }
 
   private async revalidateExchangeRate(fromCurrency: string): Promise<void> {
-    const provider = [...this.sortedProviders(), this.fallbackProvider][0] ?? this.fallbackProvider;
-    const rate = await provider.getExchangeRate(fromCurrency);
-    this.cacheExchangeRate(fromCurrency, rate, provider);
+    const result = await this.firstProvider(async (provider) => {
+      const rate = await provider.getExchangeRate(fromCurrency);
+      return { provider, rate };
+    });
+    if (!result) return;
+    this.cacheExchangeRate(fromCurrency, result.value.rate, result.value.provider);
   }
 
   private async revalidateNews(ticker: string, count = 15, exchange?: string, context?: MarketDataRequestContext): Promise<void> {
-    const provider = [...this.sortedProviders(), this.fallbackProvider][0] ?? this.fallbackProvider;
-    const items = await provider.getNews(ticker, count, exchange, context);
+    const result = await this.firstProvider((provider) => provider.getNews(ticker, count, exchange, context));
+    if (!result) return;
+    const provider = this.resolveProviderBySourceKey(result.sourceKey);
+    if (!provider) return;
     this.cacheResource(
       "news",
       this.getEntityKey(ticker, exchange, context?.instrument),
       buildVariantKey([["exchange", normalizeExchange(exchange)], ["count", count]]),
-      this.providerSourceKey(provider),
-      items,
+      result.sourceKey,
+      result.value,
       this.resolveProviderPolicy("news", provider),
     );
   }
@@ -1120,10 +1194,11 @@ export class ProviderRouter implements DataProvider {
   }
 
   private async revalidateArticleSummary(url: string): Promise<void> {
-    const provider = [...this.sortedProviders(), this.fallbackProvider][0] ?? this.fallbackProvider;
-    const summary = await provider.getArticleSummary(url);
-    if (summary) {
-      this.cacheResource("article-summary", compactUrl(url), "", this.providerSourceKey(provider), summary, this.resolveProviderPolicy("articleSummary", provider));
+    const result = await this.firstProvider((provider) => provider.getArticleSummary(url));
+    if (!result || !result.value) return;
+    const provider = this.resolveProviderBySourceKey(result.sourceKey);
+    if (provider) {
+      this.cacheResource("article-summary", compactUrl(url), "", result.sourceKey, result.value, this.resolveProviderPolicy("articleSummary", provider));
     }
   }
 
@@ -1158,5 +1233,23 @@ export class ProviderRouter implements DataProvider {
     if (!brokerChain) {
       await this.fetchProviderOptionsChain(ticker, exchange, expirationDate, context);
     }
+  }
+
+  subscribeQuotes(
+    targets: QuoteSubscriptionTarget[],
+    onQuote: (target: QuoteSubscriptionTarget, quote: Quote) => void,
+  ): () => void {
+    for (const provider of this.providersInPriorityOrder()) {
+      if (!provider.subscribeQuotes) continue;
+      providerLog.info("Delegating quote stream", {
+        providerId: provider.id,
+        targetCount: targets.length,
+      });
+      return provider.subscribeQuotes(targets, onQuote);
+    }
+    providerLog.warn("No provider supports quote streaming", {
+      targetCount: targets.length,
+    });
+    return () => {};
   }
 }
