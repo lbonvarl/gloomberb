@@ -53,7 +53,6 @@ import {
 } from "./view-model";
 import {
   createLocalTickerSearchCandidates,
-  findExactTickerSearchMatch,
   rankTickerSearchItems,
   upsertTickerFromSearchResult,
   searchTickerCandidates,
@@ -1743,13 +1742,6 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
     tickerActionItems,
   ]);
 
-  const exactTickerResult = (() => {
-    return findExactTickerSearchMatch(
-      results.filter((item) => item.id.startsWith("goto:") || item.id.startsWith("search:")),
-      searchModeQuery || query,
-    );
-  })();
-
   // Live preview: apply theme as user arrows through the list
   useEffect(() => {
     if (!isThemeMode) return;
@@ -1763,6 +1755,21 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
   const setCommandBarQuery = useCallback((nextQuery: string) => {
     dispatch({ type: "SET_COMMAND_BAR_QUERY", query: nextQuery });
   }, [dispatch]);
+
+  const moveSelection = useCallback((delta: number) => {
+    if (results.length === 0 || delta === 0) return;
+    setSelectedIdx((current) => Math.max(0, Math.min(current + delta, results.length - 1)));
+  }, [results.length]);
+
+  const activateSelection = useCallback((options?: { secondary?: boolean }) => {
+    const selected = results[selectedIdx];
+    if (!selected) return;
+    if (options?.secondary && selected.secondaryAction) {
+      selected.secondaryAction();
+      return;
+    }
+    selected.action();
+  }, [results, selectedIdx]);
 
   useEffect(() => {
     const handleKeyPress = (event: {
@@ -1785,14 +1792,14 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
       if (event.name === "down" || (event.name === "n" && event.ctrl)) {
         event.stopPropagation();
         event.preventDefault();
-        setSelectedIdx((i) => Math.min(i + 1, results.length - 1));
+        moveSelection(1);
         return;
       }
 
       if (event.name === "up" || (event.name === "p" && event.ctrl)) {
         event.stopPropagation();
         event.preventDefault();
-        setSelectedIdx((i) => Math.max(i - 1, 0));
+        moveSelection(-1);
         return;
       }
 
@@ -1824,14 +1831,10 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
         event.stopPropagation();
         event.preventDefault();
         if (event.shift) {
-          const selected = exactTickerResult?.secondaryAction ? exactTickerResult : results[selectedIdx];
-          if (selected?.secondaryAction) {
-            selected.secondaryAction();
-          }
+          activateSelection({ secondary: true });
           return;
         }
-        const selected = exactTickerResult ?? results[selectedIdx];
-        if (selected) selected.action();
+        activateSelection();
       }
     };
 
@@ -1839,7 +1842,7 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
     return () => {
       renderer.keyInput.off("keypress", handleKeyPress);
     };
-  }, [dismissCommandBar, exactTickerResult, isPluginMode, query, renderer, results, selectedIdx, setCommandBarQuery]);
+  }, [activateSelection, dismissCommandBar, isPluginMode, moveSelection, query, renderer, setCommandBarQuery]);
 
   const barWidth = Math.max(42, Math.min(64, termWidth - 8, Math.floor(termWidth * 0.62)));
   const isNarrow = barWidth < 52;
@@ -1955,10 +1958,7 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
             onChange={setCommandBarQuery}
             placeholder="Search"
             focused
-            onSubmit={() => {
-              const selected = exactTickerResult ?? results[selectedIdx];
-              if (selected) selected.action();
-            }}
+            onSubmit={() => activateSelection()}
             width={queryDisplayWidth}
             backgroundColor={paletteBg}
             focusedBackgroundColor={paletteBg}
@@ -1971,7 +1971,22 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
 
         <box height={1} />
 
-        <box flexDirection="column" height={bodyHeight}>
+        <box
+          flexDirection="column"
+          height={bodyHeight}
+          onMouseScroll={(event) => {
+            event.stopPropagation();
+            event.preventDefault();
+            const direction = event.scroll?.direction;
+            const delta = Math.max(1, Math.round(event.scroll?.delta ?? 1));
+            setHoveredIdx(null);
+            if (direction === "down" || direction === "right") {
+              moveSelection(delta);
+            } else if (direction === "up" || direction === "left") {
+              moveSelection(-delta);
+            }
+          }}
+        >
           {visibleRows.map((row) => {
             if (row.kind === "filler") {
               return <box key={row.id} height={1} />;
@@ -2023,7 +2038,9 @@ export function CommandBar({ dataProvider, tickerRepository, pluginRegistry, qui
                 onMouseMove={() => {
                   setHoveredIdx((current) => (current === row.globalIdx ? current : row.globalIdx));
                 }}
-                onMouseDown={() => {
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
                   setHoveredIdx(row.globalIdx);
                   setSelectedIdx(row.globalIdx);
                   row.item.action();

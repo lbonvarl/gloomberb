@@ -81,7 +81,6 @@ export function buildComparisonChartPaneTitle(symbols: string[]): string {
   if (symbols.length <= 3) return symbols.join(" · ");
   return `${symbols.slice(0, 2).join(" · ")} +${symbols.length - 2}`;
 }
-
 function ComparisonChartPane({ paneId, focused, width, height }: PaneProps) {
   const registry = getSharedRegistry();
   const { state } = useAppState();
