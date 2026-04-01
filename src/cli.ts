@@ -223,13 +223,25 @@ Usage: gloomberb [command]
 
 Commands:
   (no command)          Launch the terminal UI
+  predictions [...]     Launch the UI with Prediction Markets focused
   help                  Show this help message
   portfolio [name]      List portfolios or show portfolio details
   ticker <symbol>       Show quote and fundamentals for a ticker
   install <user/repo>   Install a plugin from GitHub
   remove <name>         Remove an installed plugin
   update [name]         Update plugins
-  plugins               List installed plugins`);
+  plugins               List installed plugins
+
+Prediction launch:
+  predictions [venue] [category] [browse-tab] [search...]
+    venue: all | polymarket | kalshi
+    category: all | politics | world | macro | crypto | science | sports | entertainment | climate | social
+    browse-tab: top | ending | new | watchlist
+
+Examples:
+  gloomberb predictions world
+  gloomberb predictions polymarket world
+  gloomberb predictions macro fed`);
 }
 
 // --- Portfolio command ---
