@@ -51,7 +51,7 @@ import { setLayoutManagerDispatch } from "./plugins/builtin/layout-manager";
 import { getLoadablePlugins } from "./plugins/catalog";
 import { saveConfig } from "./data/config-store";
 import { Toaster, toast } from "@opentui-ui/toast/react";
-import { canSelfUpdate, checkForUpdateDetailed, performUpdate } from "./updater";
+import { canSelfUpdate, checkForUpdateDetailed, performUpdate, type ReleaseInfo } from "./updater";
 import { VERSION } from "./version";
 import { join } from "path";
 import {
@@ -539,6 +539,13 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
     }
   }, [importBrokerPositions, state.config.brokerInstances]);
 
+  const startUpdate = useCallback((release: ReleaseInfo) => {
+    dispatch({ type: "SET_UPDATE_PROGRESS", progress: { phase: "downloading", percent: 0 } });
+    void performUpdate(release, (progress) => {
+      dispatch({ type: "SET_UPDATE_PROGRESS", progress });
+    });
+  }, [dispatch]);
+
   const runUpdateCheck = useCallback(async (manual = false) => {
     if (manual) {
       dispatch({ type: "SET_UPDATE_CHECK_IN_PROGRESS", checking: true });
@@ -579,6 +586,12 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
   useEffect(() => {
     void runUpdateCheck(false);
   }, [runUpdateCheck]);
+
+  useEffect(() => {
+    if (!state.updateAvailable || state.updateProgress || state.updateCheckInProgress) return;
+    if (!canSelfUpdate(state.updateAvailable)) return;
+    startUpdate(state.updateAvailable);
+  }, [startUpdate, state.updateAvailable, state.updateCheckInProgress, state.updateProgress]);
 
   // Load tickers on mount
   useEffect(() => {
@@ -1186,9 +1199,7 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
         dispatch({ type: "SET_COMMAND_BAR", open: true, query: "" });
       }
     } else if (event.name === "u" && state.updateAvailable && !state.updateProgress && !state.updateCheckInProgress && canSelfUpdate(state.updateAvailable)) {
-      performUpdate(state.updateAvailable, (progress) => {
-        dispatch({ type: "SET_UPDATE_PROGRESS", progress });
-      });
+      startUpdate(state.updateAvailable);
     } else {
       // Plugin keyboard shortcuts (built-ins take priority)
       const disabledPlugins = new Set(state.config.disabledPlugins || []);
@@ -1292,6 +1303,7 @@ export function App({
   useEffect(() => {
     return () => {
       setSharedMarketDataCoordinator(null);
+      services.pluginRegistry.destroy();
       services.persistence.close();
     };
   }, [services]);
