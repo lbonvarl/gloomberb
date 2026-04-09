@@ -607,6 +607,9 @@ export function CommandBar({
     next[selectorKey] = brokerId;
     return next;
   }, []);
+  const notify = useCallback((body: string, options?: { type?: "info" | "success" | "error" }) => {
+    pluginRegistry.notify({ body, ...options });
+  }, [pluginRegistry]);
 
   const openAddToPortfolioWorkflow = useCallback((
     ticker: TickerRecord,
@@ -619,7 +622,7 @@ export function CommandBar({
       defaultAvgCost,
     });
     if (!workflow) {
-      pluginRegistry.showToastFn("Create a manual portfolio first.", { type: "info" });
+      notify("Create a manual portfolio first.", { type: "info" });
       return;
     }
 
@@ -639,7 +642,7 @@ export function CommandBar({
       successBehavior: "close",
       payload: { kind: "builtin", actionId: "add-portfolio" },
     });
-  }, [openWorkflowRoute, pluginRegistry]);
+  }, [notify, openWorkflowRoute]);
 
   const connectBrokerProfile = useCallback(async (
     brokerId: string,
@@ -671,8 +674,8 @@ export function CommandBar({
     dispatch({ type: "SET_CONFIG", config: freshConfig });
     const brokerTab = freshConfig.portfolios.find((portfolio) => portfolio.brokerInstanceId === instance.id);
     if (brokerTab) setActiveCollection(brokerTab.id);
-    pluginRegistry.showToastFn("Connected! Positions will sync automatically.", { type: "success" });
-  }, [dispatch, pluginRegistry, setActiveCollection]);
+    notify("Connected! Positions will sync automatically.", { type: "success" });
+  }, [dispatch, notify, pluginRegistry, setActiveCollection]);
 
   const createManualPortfolio = useCallback(async (name: string) => {
     const currentState = stateRef.current;
@@ -684,8 +687,8 @@ export function CommandBar({
     dispatch({ type: "SET_CONFIG", config: nextConfig });
     setActiveCollection(portfolio.id);
     await saveConfig(nextConfig);
-    pluginRegistry.showToastFn(`Created portfolio "${portfolio.name}".`, { type: "success" });
-  }, [dispatch, pluginRegistry, setActiveCollection]);
+    notify(`Created portfolio "${portfolio.name}".`, { type: "success" });
+  }, [dispatch, notify, setActiveCollection]);
 
   const createWatchlist = useCallback(async (name: string) => {
     const currentState = stateRef.current;
@@ -703,8 +706,8 @@ export function CommandBar({
     dispatch({ type: "SET_CONFIG", config: nextConfig });
     setActiveCollection(id);
     await saveConfig(nextConfig);
-    pluginRegistry.showToastFn(`Created watchlist "${trimmedName}".`, { type: "success" });
-  }, [dispatch, pluginRegistry, setActiveCollection]);
+    notify(`Created watchlist "${trimmedName}".`, { type: "success" });
+  }, [dispatch, notify, setActiveCollection]);
 
   const deleteWatchlist = useCallback(async (watchlistId: string) => {
     const currentState = stateRef.current;
@@ -723,8 +726,8 @@ export function CommandBar({
       if (fallback) setActiveCollection(fallback);
     }
     await saveConfig(nextConfig);
-    pluginRegistry.showToastFn(`Deleted "${watchlist.name}".`, { type: "success" });
-  }, [activeCollectionId, dispatch, pluginRegistry, setActiveCollection]);
+    notify(`Deleted "${watchlist.name}".`, { type: "success" });
+  }, [activeCollectionId, dispatch, notify, setActiveCollection]);
 
   const deletePortfolio = useCallback(async (portfolioId: string) => {
     const currentState = stateRef.current;
@@ -753,8 +756,8 @@ export function CommandBar({
       if (fallback) setActiveCollection(fallback);
     }
     await saveConfig(nextConfig);
-    pluginRegistry.showToastFn(`Deleted "${portfolio.name}".`, { type: "success" });
-  }, [activeCollectionId, dispatch, pluginRegistry, setActiveCollection, tickerRepository]);
+    notify(`Deleted "${portfolio.name}".`, { type: "success" });
+  }, [activeCollectionId, dispatch, notify, setActiveCollection, tickerRepository]);
 
   const setPortfolioPositionFromWorkflow = useCallback(async (values: Record<string, CommandBarFieldValue>) => {
     const currentState = stateRef.current;
@@ -801,8 +804,8 @@ export function CommandBar({
     });
     await tickerRepository.saveTicker(result.ticker);
     dispatch({ type: "UPDATE_TICKER", ticker: result.ticker });
-    pluginRegistry.showToastFn(`Set position for ${result.ticker.metadata.ticker} in "${portfolio.name}".`, { type: "success" });
-  }, [activeCollectionId, activeTickerSymbol, dataProvider, dispatch, pluginRegistry, tickerRepository]);
+    notify(`Set position for ${result.ticker.metadata.ticker} in "${portfolio.name}".`, { type: "success" });
+  }, [activeCollectionId, activeTickerSymbol, dataProvider, dispatch, notify, pluginRegistry, tickerRepository]);
 
   const addTickerMembershipFromWorkflow = useCallback(async (values: Record<string, CommandBarFieldValue>) => {
     const currentState = stateRef.current;
@@ -829,12 +832,12 @@ export function CommandBar({
     if (result.changed) {
       await tickerRepository.saveTicker(result.ticker);
       dispatch({ type: "UPDATE_TICKER", ticker: result.ticker });
-      pluginRegistry.showToastFn(`Added ${result.ticker.metadata.ticker} to "${portfolio.name}".`, { type: "success" });
+      notify(`Added ${result.ticker.metadata.ticker} to "${portfolio.name}".`, { type: "success" });
       return;
     }
 
-    pluginRegistry.showToastFn(`${result.ticker.metadata.ticker} is already in "${portfolio.name}".`, { type: "info" });
-  }, [activeCollectionId, activeTickerSymbol, dataProvider, dispatch, pluginRegistry, tickerRepository]);
+    notify(`${result.ticker.metadata.ticker} is already in "${portfolio.name}".`, { type: "info" });
+  }, [activeCollectionId, activeTickerSymbol, dataProvider, dispatch, notify, pluginRegistry, tickerRepository]);
 
   const disconnectBrokerInstance = useCallback(async (instanceId: string) => {
     const instance = stateRef.current.config.brokerInstances.find((entry) => entry.id === instanceId);
@@ -844,8 +847,8 @@ export function CommandBar({
     await pluginRegistry.removeBrokerInstanceFn(instanceId);
     const freshConfig = pluginRegistry.getConfigFn();
     dispatch({ type: "SET_CONFIG", config: freshConfig });
-    pluginRegistry.showToastFn(`Removed ${instance.label}.`, { type: "success" });
-  }, [dispatch, pluginRegistry]);
+    notify(`Removed ${instance.label}.`, { type: "success" });
+  }, [dispatch, notify, pluginRegistry]);
 
   const openBuiltInWorkflow = useCallback((actionId: string) => {
     switch (actionId) {
@@ -908,7 +911,7 @@ export function CommandBar({
           true,
         );
         if (!workflow) {
-          pluginRegistry.showToastFn("No connectable brokers are installed.", { type: "info" });
+          notify("No connectable brokers are installed.", { type: "info" });
           return;
         }
         openWorkflowRoute(workflow);
@@ -920,7 +923,7 @@ export function CommandBar({
           activeTicker: activeTickerData,
         });
         if (!workflow) {
-          pluginRegistry.showToastFn("Create a manual portfolio first.", { type: "info" });
+          notify("Create a manual portfolio first.", { type: "info" });
           return;
         }
         openWorkflowRoute({
@@ -950,7 +953,7 @@ export function CommandBar({
           false,
         );
         if (!workflow) {
-          pluginRegistry.showToastFn("No connectable brokers are installed.", { type: "info" });
+          notify("No connectable brokers are installed.", { type: "info" });
           return;
         }
         openWorkflowRoute(workflow);
@@ -958,8 +961,8 @@ export function CommandBar({
       }
       default:
         return;
-    }
-  }, [activeCollectionId, activeTickerData, buildBrokerWorkflow, openWorkflowRoute, pluginRegistry, state.config]);
+      }
+  }, [activeCollectionId, activeTickerData, buildBrokerWorkflow, notify, openWorkflowRoute, pluginRegistry, state.config]);
 
   const openPickerRoute = useCallback((
     route: CommandBarRoute,
@@ -1032,7 +1035,7 @@ export function CommandBar({
   const openPaneSettingsRoute = useCallback((paneId: string) => {
     const descriptor = pluginRegistry.resolvePaneSettings(paneId);
     if (!descriptor) {
-      pluginRegistry.showToastFn("The focused pane has no settings.", { type: "info" });
+      notify("The focused pane has no settings.", { type: "info" });
       return;
     }
     pushRoute({
@@ -1044,7 +1047,7 @@ export function CommandBar({
       error: null,
       pendingFieldKey: null,
     });
-  }, [pluginRegistry, pushRoute]);
+  }, [notify, pluginRegistry, pushRoute]);
 
   const executeCollectionCommand = useCallback(async (
     commandId: "add-watchlist" | "add-portfolio" | "remove-watchlist" | "remove-portfolio",
@@ -1073,7 +1076,7 @@ export function CommandBar({
     if (kind === "portfolio" && action === "add") {
       const manualPortfolios = stateForCommand.config.portfolios.filter(isManualPortfolio);
       if (manualPortfolios.length === 0) {
-        pluginRegistry.showToastFn("Create a manual portfolio first.", { type: "info" });
+        notify("Create a manual portfolio first.", { type: "info" });
         return;
       }
 
@@ -1137,7 +1140,7 @@ export function CommandBar({
           description: option.description,
         }));
       if (options.length === 0) {
-        pluginRegistry.showToastFn(
+        notify(
           action === "add"
             ? `No ${kind}s are available for ${resolvedTicker.symbol}.`
             : `${resolvedTicker.symbol} is not in any ${kind}.`,
@@ -1175,7 +1178,7 @@ export function CommandBar({
     } else {
       const portfolio = stateForCommand.config.portfolios.find((entry) => entry.id === targetId);
       if (!portfolio || !isManualPortfolio(portfolio)) {
-        pluginRegistry.showToastFn("Choose a manual portfolio.", { type: "error" });
+        notify("Choose a manual portfolio.", { type: "error" });
         return;
       }
 
@@ -1193,12 +1196,12 @@ export function CommandBar({
       ? stateForCommand.config.watchlists.find((entry) => entry.id === targetId)?.name
       : stateForCommand.config.portfolios.find((entry) => entry.id === targetId)?.name) || targetId;
     if (changed) {
-      pluginRegistry.showToastFn(
+      notify(
         `${action === "add" ? "Added" : "Removed"} ${resolvedTicker.symbol} ${action === "add" ? "to" : "from"} "${targetName}".`,
         { type: "success" },
       );
     } else {
-      pluginRegistry.showToastFn(
+      notify(
         action === "add"
           ? `${resolvedTicker.symbol} is already in "${targetName}".`
           : `${resolvedTicker.symbol} is not in "${targetName}".`,
@@ -1211,6 +1214,7 @@ export function CommandBar({
     activeTickerSymbol,
     buildSharedWorkflowDeps,
     closeAll,
+    notify,
     openAddToPortfolioWorkflow,
     openModeRoute,
     openPickerRoute,
@@ -1434,14 +1438,14 @@ export function CommandBar({
               const name = coerceFieldString(route.values.name).trim();
               if (!name) throw new Error("Layout name is required.");
               dispatch({ type: "NEW_LAYOUT", name });
-              pluginRegistry.showToastFn(`Created layout "${name}".`, { type: "success" });
+              notify(`Created layout "${name}".`, { type: "success" });
               break;
             }
             case "rename-layout": {
               const name = coerceFieldString(route.values.name).trim();
               if (!name) throw new Error("Layout name is required.");
               dispatch({ type: "RENAME_LAYOUT", index: state.config.activeLayoutIndex, name });
-              pluginRegistry.showToastFn(`Renamed layout to "${name}".`, { type: "success" });
+              notify(`Renamed layout to "${name}".`, { type: "success" });
               break;
             }
             case "new-portfolio": {
@@ -1493,7 +1497,7 @@ export function CommandBar({
           }
           await command.execute(values);
           if (route.successLabel) {
-            pluginRegistry.showToastFn(route.successLabel, { type: "success" });
+            notify(route.successLabel, { type: "success" });
           }
           break;
         }
@@ -1517,7 +1521,7 @@ export function CommandBar({
           };
           await pluginRegistry.createPaneFromTemplateAsyncFn(template.id, createOptions);
           if (route.successLabel) {
-            pluginRegistry.showToastFn(route.successLabel, { type: "success" });
+            notify(route.successLabel, { type: "success" });
           }
           break;
         }
@@ -1567,6 +1571,7 @@ export function CommandBar({
     dispatch,
     extractBrokerWorkflowValues,
     getWorkflowFieldStringValue,
+    notify,
     pluginRegistry,
     addTickerMembershipFromWorkflow,
     setPortfolioPositionFromWorkflow,
@@ -1669,12 +1674,12 @@ export function CommandBar({
       closeAll({ revertThemePreview: false });
     } catch (error) {
       const displayLabel = getPaneTemplateDisplayLabel(template);
-      pluginRegistry.showToastFn(
+      notify(
         error instanceof Error ? error.message : `Could not create ${displayLabel.toLowerCase()}.`,
         { type: "error" },
       );
     }
-  }, [closeAll, pluginRegistry]);
+  }, [closeAll, notify, pluginRegistry]);
 
   async function runPaneTemplateShortcut(
     template: PaneTemplateDef,
@@ -2015,12 +2020,12 @@ export function CommandBar({
       await command.execute();
       closeAll({ revertThemePreview: false });
     } catch (error) {
-      pluginRegistry.showToastFn(
+      notify(
         error instanceof Error ? error.message : `Could not run ${command.label.toLowerCase()}.`,
         { type: "error" },
       );
     }
-  }, [closeAll, pluginRegistry]);
+  }, [closeAll, notify, pluginRegistry]);
 
   const pluginCommandItems = useCallback((): ResultItem[] => {
     const disabledPlugins = new Set(state.config.disabledPlugins || []);
@@ -2201,11 +2206,11 @@ export function CommandBar({
         const exportPath = `${process.env.HOME || "~"}/gloomberb-config-backup.json`;
         void exportConfig(state.config, exportPath)
           .then(() => {
-            pluginRegistry.showToastFn(`Config exported to ${exportPath}`, { type: "success" });
+            notify(`Config exported to ${exportPath}`, { type: "success" });
             closeAll({ revertThemePreview: false });
           })
           .catch((error) => {
-            pluginRegistry.showToastFn(error instanceof Error ? error.message : "Export failed.", { type: "error" });
+            notify(error instanceof Error ? error.message : "Export failed.", { type: "error" });
           });
         return;
       }
@@ -2216,11 +2221,11 @@ export function CommandBar({
             dispatch({ type: "SET_CONFIG", config: imported });
             applyTheme(imported.theme);
             dispatch({ type: "SET_THEME", theme: imported.theme });
-            pluginRegistry.showToastFn(`Imported config from ${importPath}.`, { type: "success" });
+            notify(`Imported config from ${importPath}.`, { type: "success" });
             closeAll({ revertThemePreview: false });
           })
           .catch((error) => {
-            pluginRegistry.showToastFn(error instanceof Error ? error.message : "Import failed.", { type: "error" });
+            notify(error instanceof Error ? error.message : "Import failed.", { type: "error" });
           });
         return;
       }
