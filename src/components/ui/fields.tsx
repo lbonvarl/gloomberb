@@ -87,7 +87,14 @@ export function TextField({
           ref={resolvedInputRef}
           width={width}
           value={value}
+<<<<<<< HEAD
           placeholder={useOverlay ? "" : placeholder}
+||||||| parent of e254b56 (Add clipboard shortcuts for selections (#144))
+          placeholder={isPassword ? "" : placeholder}
+=======
+          selectable={!isPassword}
+          placeholder={isPassword ? "" : placeholder}
+>>>>>>> e254b56 (Add clipboard shortcuts for selections (#144))
           focused={focused}
           textColor={useOverlay ? backgroundColor : textColor}
           placeholderColor={placeholderColor}
@@ -120,8 +127,16 @@ export function TextField({
               resolvedInputRef.current?.focus?.();
             }}
           >
+<<<<<<< HEAD
             <text fg={visibleTextColor}>
               {visibleBefore}
+||||||| parent of e254b56 (Add clipboard shortcuts for selections (#144))
+            <text fg={maskedTextColor}>
+              {maskedBefore}
+=======
+            <text fg={maskedTextColor} selectable={false}>
+              {maskedBefore}
+>>>>>>> e254b56 (Add clipboard shortcuts for selections (#144))
               {focused && (
                 <span bg={visibleTextColor} fg={backgroundColor}>{visibleCursorChar}</span>
               )}
