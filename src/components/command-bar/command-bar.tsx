@@ -85,6 +85,7 @@ import {
   applyCollectionMembershipChange,
   getCollectionTargetOptions,
   resolvePreferredCollectionTarget,
+  resolveSoleCollectionTarget,
   resolveTickerInput,
   resolveTickerInputOrThrow,
   resolveTickerListInput,
@@ -1123,12 +1124,27 @@ export function CommandBar({
     }
 
     const targetId = explicitTargetId
-      ?? resolvePreferredCollectionTarget(
-        stateForCommand,
-        kind,
-        activeCollectionId,
-        action,
-        resolvedTicker.ticker,
+      ?? (
+        kind === "watchlist" && action === "add"
+          ? resolvePreferredCollectionTarget(
+            stateForCommand,
+            kind,
+            activeCollectionId,
+            action,
+            resolvedTicker.ticker,
+          ) ?? resolveSoleCollectionTarget(
+            stateForCommand,
+            kind,
+            action,
+            resolvedTicker.ticker,
+          )
+          : resolvePreferredCollectionTarget(
+            stateForCommand,
+            kind,
+            activeCollectionId,
+            action,
+            resolvedTicker.ticker,
+          )
       );
 
     if (!targetId) {
@@ -2573,12 +2589,22 @@ export function CommandBar({
             : manualPortfolios.length === 1
               ? manualPortfolios[0]!.id
               : null)
-          : resolvePreferredCollectionTarget(
-            state,
-            kind,
-            activeCollectionId,
-            action,
-            localTicker,
+          : (
+            resolvePreferredCollectionTarget(
+              state,
+              kind,
+              activeCollectionId,
+              action,
+              localTicker,
+            )
+            ?? (commandId === "add-watchlist"
+              ? resolveSoleCollectionTarget(
+                state,
+                kind,
+                action,
+                localTicker,
+              )
+              : null)
           );
         const preferredTargetName = preferredTargetId
           ? (kind === "watchlist"
@@ -3194,7 +3220,14 @@ export function CommandBar({
         activeCollectionId,
         action,
         localTicker,
-      );
+      ) ?? (commandId === "add-watchlist"
+        ? resolveSoleCollectionTarget(
+          state,
+          kind,
+          action,
+          localTicker,
+        )
+        : null);
       const preferredTargetName = preferredTargetId
         ? (kind === "watchlist"
           ? state.config.watchlists.find((entry) => entry.id === preferredTargetId)?.name
