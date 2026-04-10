@@ -108,13 +108,9 @@ function getPortfolioPositionMetrics(
     const direction = position.side === "short" ? -1 : 1;
     const priceMultiplier = normalizePositionMultiplier(position.multiplier);
     const costMultiplier = resolvePositionCostMultiplier(position);
-<<<<<<< HEAD
     const scaledShares = position.shares * ownershipScale;
-||||||| parent of 3e5bd81 (Refine market formatting and chart behavior (#148))
-=======
-    multiplierHint = Math.max(multiplierHint, priceMultiplier, costMultiplier);
->>>>>>> 3e5bd81 (Refine market formatting and chart behavior (#148))
 
+    multiplierHint = Math.max(multiplierHint, priceMultiplier, costMultiplier);
     totalShares += scaledShares * direction;
     totalCost += scaledShares * position.avgCost * costMultiplier;
     totalCostUnits += scaledShares * costMultiplier;
@@ -193,16 +189,8 @@ export function getColumnValue(
   const fundamentals = financials?.fundamentals;
   const quoteCurrency = quote?.currency || ticker.metadata.currency || "USD";
 
-<<<<<<< HEAD
   const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency, ctx.ownershipScale ?? 1);
-  const { positionCurrency, totalShares, totalCost, totalCostUnits, totalPriceUnits, brokerMarkPrice } = positionMetrics;
-||||||| parent of 3e5bd81 (Refine market formatting and chart behavior (#148))
-  const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency);
-  const { positionCurrency, totalShares, totalCost, totalCostUnits, totalPriceUnits, brokerMarkPrice } = positionMetrics;
-=======
-  const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency);
   const { positionCurrency, totalShares, totalCost, totalCostUnits, totalPriceUnits, multiplierHint, brokerMarkPrice } = positionMetrics;
->>>>>>> 3e5bd81 (Refine market formatting and chart behavior (#148))
   const brokerFallbackMktValue = resolveBrokerFallbackMarketValue(positionMetrics);
   const brokerFallbackPnl = resolveBrokerFallbackPnl(positionMetrics, brokerFallbackMktValue);
   const toBaseQuote = (value: number) =>

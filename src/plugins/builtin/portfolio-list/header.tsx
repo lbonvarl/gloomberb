@@ -125,13 +125,7 @@ export function PortfolioCashMarginDrawer({
             <box key={balance.currency} height={1} flexDirection="row">
               <text fg={colors.textBright}>{padTo(balance.currency, 4)}</text>
               <text fg={colors.textDim}>{" qty "}</text>
-<<<<<<< HEAD
-              <text fg={colors.text}>{padTo(formatNumber(balance.quantity * scale, 2), 14, "right")}</text>
-||||||| parent of 3e5bd81 (Refine market formatting and chart behavior (#148))
-              <text fg={colors.text}>{padTo(formatNumber(balance.quantity, 2), 14, "right")}</text>
-=======
-              <text fg={colors.text}>{padTo(formatMarketQuantity(balance.quantity, { isCashBalance: true, maxWidth: 14 }), 14, "right")}</text>
->>>>>>> 3e5bd81 (Refine market formatting and chart behavior (#148))
+              <text fg={colors.text}>{padTo(formatMarketQuantity(balance.quantity * scale, { isCashBalance: true, maxWidth: 14 }), 14, "right")}</text>
               <text fg={colors.textDim}>{"  value "}</text>
               <text fg={colors.text}>{padTo(balance.baseValue != null ? formatCompact(balance.baseValue * scale) : "—", 10, "right")}</text>
             </box>
