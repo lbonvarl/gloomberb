@@ -67,6 +67,8 @@ export interface BrokerConnectionStatus {
 export interface BrokerAdapter {
   readonly id: string;
   readonly name: string;
+  readonly authStrategy?: "api" | "browser" | "hybrid";
+  readonly pruneEmptyAccounts?: boolean;
   readonly cachePolicy?: CachePolicyMap;
   validate(instance: BrokerInstanceConfig): Promise<boolean>;
   importPositions(instance: BrokerInstanceConfig): Promise<BrokerPosition[]>;

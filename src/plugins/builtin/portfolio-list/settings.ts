@@ -1,5 +1,6 @@
 import type { PaneSettingOption, PaneSettingsDef, PaneTemplateContext } from "../../../types/plugin";
 import { DEFAULT_COLUMNS, DEFAULT_PORTFOLIO_COLUMN_IDS, type AppConfig, type ColumnConfig } from "../../../types/config";
+import { getPortfolioOwnerNames } from "../../../utils/portfolio-ownership";
 
 export type CollectionScope = "all" | "portfolios" | "watchlists" | "custom";
 
@@ -7,6 +8,7 @@ export interface PortfolioPaneSettings {
   columnIds: string[];
   collectionScope: CollectionScope;
   visibleCollectionIds: string[];
+  ownerFilter: string;
   hideTabs: boolean;
   hideHeader: boolean;
   hideCash: boolean;
@@ -17,6 +19,7 @@ export interface CollectionEntry {
   id: string;
   name: string;
   kind: "portfolio" | "watchlist";
+  owners: string[];
 }
 
 export const PORTFOLIO_COLUMN_DEFS: ColumnConfig[] = [
@@ -71,27 +74,59 @@ function isCollectionScope(value: unknown): value is CollectionScope {
   return value === "all" || value === "portfolios" || value === "watchlists" || value === "custom";
 }
 
+function resolveOwnerFilter(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeOwnerFilter(ownerFilter: string, entries: CollectionEntry[]): string {
+  if (!ownerFilter) return "";
+  return entries.some((entry) => entry.owners.includes(ownerFilter)) ? ownerFilter : "";
+}
+
 function filterCollectionEntries(entries: CollectionEntry[], settings: PortfolioPaneSettings): CollectionEntry[] {
-  switch (settings.collectionScope) {
-    case "portfolios":
-      return entries.filter((entry) => entry.kind === "portfolio");
-    case "watchlists":
-      return entries.filter((entry) => entry.kind === "watchlist");
-    case "custom": {
-      const selectedIds = new Set(settings.visibleCollectionIds);
-      return entries.filter((entry) => selectedIds.has(entry.id));
+  const scopedEntries = (() => {
+    switch (settings.collectionScope) {
+      case "portfolios":
+        return entries.filter((entry) => entry.kind === "portfolio");
+      case "watchlists":
+        return entries.filter((entry) => entry.kind === "watchlist");
+      case "custom": {
+        const selectedIds = new Set(settings.visibleCollectionIds);
+        return entries.filter((entry) => selectedIds.has(entry.id));
+      }
+      default:
+        return entries;
     }
-    default:
-      return entries;
-  }
+  })();
+
+  if (!settings.ownerFilter) return scopedEntries;
+  return scopedEntries.filter((entry) => entry.kind === "portfolio" && entry.owners.includes(settings.ownerFilter));
 }
 
 function resolveCollectionOptions(entries: CollectionEntry[]): PaneSettingOption[] {
   return entries.map((entry) => ({
     value: entry.id,
     label: entry.name,
-    description: entry.kind === "portfolio" ? "Portfolio" : "Watchlist",
+    description: entry.kind === "portfolio"
+      ? entry.owners.length > 0 ? `Portfolio · ${entry.owners.join(", ")}` : "Portfolio"
+      : "Watchlist",
   }));
+}
+
+function resolveOwnerOptions(entries: CollectionEntry[]): PaneSettingOption[] {
+  const owners = [...new Set(entries.flatMap((entry) => entry.owners))].sort((left, right) => left.localeCompare(right));
+  return [
+    {
+      value: "",
+      label: "All Owners",
+      description: "Show full account values without ownership weighting.",
+    },
+    ...owners.map((owner) => ({
+      value: owner,
+      label: owner,
+      description: "Filter to this owner and weight values by ownership share.",
+    })),
+  ];
 }
 
 function resolveLockedCollectionId(settings: PortfolioPaneSettings, visibleCollections: CollectionEntry[]): string {
@@ -113,6 +148,7 @@ export function getPortfolioPaneSettings(settings: Record<string, unknown> | und
     columnIds: columnIds.length > 0 ? columnIds : DEFAULT_PORTFOLIO_COLUMN_IDS,
     collectionScope: isCollectionScope(settings?.collectionScope) ? settings.collectionScope : "all",
     visibleCollectionIds,
+    ownerFilter: resolveOwnerFilter(settings?.ownerFilter),
     hideTabs: settings?.hideTabs === true,
     hideHeader: settings?.hideHeader === true,
     hideCash: settings?.hideCash === true,
@@ -125,6 +161,7 @@ export function createPortfolioPaneSettings(overrides: Partial<PortfolioPaneSett
     columnIds: [...(overrides.columnIds ?? DEFAULT_PORTFOLIO_COLUMN_IDS)],
     collectionScope: overrides.collectionScope ?? "all",
     visibleCollectionIds: [...(overrides.visibleCollectionIds ?? [])],
+    ownerFilter: overrides.ownerFilter ?? "",
     hideTabs: overrides.hideTabs ?? false,
     hideHeader: overrides.hideHeader ?? false,
     hideCash: overrides.hideCash ?? false,
@@ -138,11 +175,13 @@ export function getCollectionEntries(config: AppConfig): CollectionEntry[] {
       id: portfolio.id,
       name: portfolio.name,
       kind: "portfolio" as const,
+      owners: getPortfolioOwnerNames(portfolio),
     })),
     ...config.watchlists.map((watchlist) => ({
       id: watchlist.id,
       name: watchlist.name,
       kind: "watchlist" as const,
+      owners: [],
     })),
   ];
 }
@@ -150,7 +189,8 @@ export function getCollectionEntries(config: AppConfig): CollectionEntry[] {
 export function resolveScopedCollectionEntries(entries: CollectionEntry[], settings: PortfolioPaneSettings): CollectionEntry[] {
   const filtered = filterCollectionEntries(entries, settings);
   if (settings.collectionScope === "custom" && filtered.length === 0 && entries[0]) {
-    return [entries[0]];
+    const fallback = filterCollectionEntries([entries[0]], settings);
+    return fallback.length > 0 ? fallback : [];
   }
   return filtered;
 }
@@ -185,9 +225,14 @@ export function resolveVisibleColumns(columnIds: string[], isPortfolioTab: boole
 
 export function buildPortfolioPaneSettingsDef(config: AppConfig, settings: PortfolioPaneSettings): PaneSettingsDef {
   const collectionEntries = getCollectionEntries(config);
-  const scopedEntries = resolveScopedCollectionEntries(collectionEntries, settings);
+  const normalizedSettings = {
+    ...settings,
+    ownerFilter: normalizeOwnerFilter(settings.ownerFilter, collectionEntries),
+  };
+  const scopedEntries = resolveScopedCollectionEntries(collectionEntries, normalizedSettings);
   const allCollectionOptions = resolveCollectionOptions(collectionEntries);
   const lockedCollectionOptions = resolveCollectionOptions(scopedEntries.length > 0 ? scopedEntries : collectionEntries);
+  const ownerOptions = resolveOwnerOptions(collectionEntries);
 
   const fields: PaneSettingsDef["fields"] = [
     {
@@ -212,7 +257,17 @@ export function buildPortfolioPaneSettingsDef(config: AppConfig, settings: Portf
     },
   ];
 
-  if (settings.collectionScope === "custom") {
+  if (ownerOptions.length > 1) {
+    fields.push({
+      key: "ownerFilter",
+      label: "Owner View",
+      description: "Filter to a specific owner and weight values by that owner's share.",
+      type: "select",
+      options: ownerOptions,
+    });
+  }
+
+  if (normalizedSettings.collectionScope === "custom") {
     fields.push({
       key: "visibleCollectionIds",
       label: "Visible Collections",
@@ -241,7 +296,7 @@ export function buildPortfolioPaneSettingsDef(config: AppConfig, settings: Portf
     type: "toggle",
   });
 
-  if (settings.hideTabs && lockedCollectionOptions.length > 0) {
+  if (normalizedSettings.hideTabs && lockedCollectionOptions.length > 0) {
     fields.push({
       key: "lockedCollectionId",
       label: "Locked Collection",

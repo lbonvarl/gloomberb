@@ -21,7 +21,7 @@ import {
   clonePaneSettings,
   normalizePaneLayout,
 } from "../types/config";
-import type { Portfolio, Watchlist } from "../types/ticker";
+import type { Portfolio, PortfolioOwnershipShare, Watchlist } from "../types/ticker";
 import { debugLog } from "../utils/debug-log";
 
 const configLog = debugLog.createLogger("config");
@@ -243,7 +243,27 @@ function sanitizePortfolios(value: unknown, fallback: Portfolio[]): Portfolio[] 
       && typeof (entry as Portfolio).name === "string"
       && typeof (entry as Portfolio).currency === "string",
     )
-    .map((entry) => ({ ...entry }));
+    .map((entry) => ({
+      ...entry,
+      ownership: sanitizePortfolioOwnership((entry as Portfolio).ownership),
+    }));
+}
+
+function sanitizePortfolioOwnership(value: unknown): PortfolioOwnershipShare[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ownership = value
+    .filter((entry): entry is PortfolioOwnershipShare => (
+      !!entry
+      && typeof entry === "object"
+      && typeof (entry as PortfolioOwnershipShare).name === "string"
+      && typeof (entry as PortfolioOwnershipShare).share === "number"
+      && Number.isFinite((entry as PortfolioOwnershipShare).share)
+    ))
+    .map((entry) => ({
+      name: entry.name,
+      share: entry.share,
+    }));
+  return ownership.length > 0 ? ownership : undefined;
 }
 
 function sanitizeWatchlists(value: unknown, fallback: Watchlist[]): Watchlist[] {
@@ -313,9 +333,9 @@ function sanitizePlacementMemory(value: unknown): PanePlacementMemory | undefine
   const docked = (() => {
     const raw = (value as PanePlacementMemory).docked;
     if (!raw || typeof raw !== "object") return undefined;
-    const path = Array.isArray((raw as { path?: unknown }).path)
-      ? (raw as { path?: unknown }).path
-        ?.filter((segment): segment is 0 | 1 => segment === 0 || segment === 1)
+    const rawPath = (raw as { path?: unknown }).path;
+    const path = Array.isArray(rawPath)
+      ? rawPath.filter((segment): segment is 0 | 1 => segment === 0 || segment === 1)
       : undefined;
     const anchorInstanceId = typeof (raw as { anchorInstanceId?: unknown }).anchorInstanceId === "string"
       ? (raw as { anchorInstanceId: string }).anchorInstanceId

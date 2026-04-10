@@ -13,6 +13,7 @@ export interface ColumnContext {
   baseCurrency: string;
   exchangeRates: Map<string, number>;
   now: number;
+  ownershipScale?: number;
 }
 
 interface PortfolioPositionMetrics {
@@ -86,6 +87,7 @@ function getPortfolioPositionMetrics(
   ticker: TickerRecord,
   activeTab: string | undefined,
   fallbackCurrency: string,
+  ownershipScale = 1,
 ): PortfolioPositionMetrics {
   const tabPositions = activeTab
     ? ticker.metadata.positions.filter((position) => position.portfolio === activeTab)
@@ -103,18 +105,19 @@ function getPortfolioPositionMetrics(
     const direction = position.side === "short" ? -1 : 1;
     const priceMultiplier = normalizePositionMultiplier(position.multiplier);
     const costMultiplier = resolvePositionCostMultiplier(position);
+    const scaledShares = position.shares * ownershipScale;
 
-    totalShares += position.shares * direction;
-    totalCost += position.shares * position.avgCost * costMultiplier;
-    totalCostUnits += position.shares * costMultiplier;
-    totalPriceUnits += position.shares * priceMultiplier * direction;
+    totalShares += scaledShares * direction;
+    totalCost += scaledShares * position.avgCost * costMultiplier;
+    totalCostUnits += scaledShares * costMultiplier;
+    totalPriceUnits += scaledShares * priceMultiplier * direction;
 
     if (position.marketValue != null) {
-      brokerMktValue += position.marketValue;
+      brokerMktValue += position.marketValue * ownershipScale;
       hasBrokerMktValue = true;
     }
     if (position.unrealizedPnl != null) {
-      brokerPnl += position.unrealizedPnl;
+      brokerPnl += position.unrealizedPnl * ownershipScale;
       hasBrokerPnl = true;
     }
   }
@@ -179,7 +182,7 @@ export function getColumnValue(
   const fundamentals = financials?.fundamentals;
   const quoteCurrency = quote?.currency || ticker.metadata.currency || "USD";
 
-  const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency);
+  const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency, ctx.ownershipScale ?? 1);
   const { positionCurrency, totalShares, totalCost, totalCostUnits, totalPriceUnits, brokerMarkPrice } = positionMetrics;
   const brokerFallbackMktValue = resolveBrokerFallbackMarketValue(positionMetrics);
   const brokerFallbackPnl = resolveBrokerFallbackPnl(positionMetrics, brokerFallbackMktValue);
@@ -298,7 +301,7 @@ export function getSortValue(
   const fundamentals = financials?.fundamentals;
   const quoteCurrency = quote?.currency || ticker.metadata.currency || "USD";
 
-  const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency);
+  const positionMetrics = getPortfolioPositionMetrics(ticker, ctx.activeTab, quoteCurrency, ctx.ownershipScale ?? 1);
   const { positionCurrency, totalShares, totalCost, totalCostUnits, totalPriceUnits, brokerMarkPrice } = positionMetrics;
   const brokerFallbackMktValue = resolveBrokerFallbackMarketValue(positionMetrics);
   const brokerFallbackPnl = resolveBrokerFallbackPnl(positionMetrics, brokerFallbackMktValue);
@@ -397,6 +400,7 @@ export function calculatePortfolioSummaryTotals(
   exchangeRates: Map<string, number>,
   isPortfolio: boolean,
   collectionId: string | null,
+  ownershipScale = 1,
 ): PortfolioSummaryTotals {
   let totalMktValue = 0;
   let totalPrevValue = 0;
@@ -419,7 +423,7 @@ export function calculatePortfolioSummaryTotals(
       continue;
     }
 
-    const positionMetrics = getPortfolioPositionMetrics(ticker, collectionId ?? undefined, quoteCurrency);
+    const positionMetrics = getPortfolioPositionMetrics(ticker, collectionId ?? undefined, quoteCurrency, ownershipScale);
     const { positionCurrency, totalPriceUnits, totalCost } = positionMetrics;
     const brokerFallbackMktValue = resolveBrokerFallbackMarketValue(positionMetrics);
     const toBaseQuote = (value: number) => convertCurrency(value, quoteCurrency, baseCurrency, exchangeRates);

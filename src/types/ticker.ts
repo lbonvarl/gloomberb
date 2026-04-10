@@ -19,6 +19,11 @@ export interface TickerPosition {
   brokerContractId?: number;
 }
 
+export interface PortfolioOwnershipShare {
+  name: string;
+  share: number;
+}
+
 export interface TickerMetadata {
   ticker: string;
   exchange: string;
@@ -49,6 +54,7 @@ export interface Portfolio {
   brokerId?: string;
   brokerInstanceId?: string;
   brokerAccountId?: string;
+  ownership?: PortfolioOwnershipShare[];
 }
 
 export interface Watchlist {

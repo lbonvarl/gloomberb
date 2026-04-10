@@ -101,6 +101,7 @@ import {
   getScreenFooterLeft,
   getScreenFooterRight,
   getVisibleWorkflowFields,
+  applyWorkflowSelectValue,
   isCollectionCommand,
   isRootParsedCommand,
   isRouteCommandId,
@@ -4149,8 +4150,18 @@ export function CommandBar({
         case "field-select": {
           const parentKind = String(currentRoute.payload?.parentKind ?? "");
           if (parentKind === "workflow") {
-            updateWorkflowValue(String(currentRoute.payload?.fieldId ?? ""), option.id);
-            setRouteStack((current) => current.slice(0, -1));
+            const fieldId = String(currentRoute.payload?.fieldId ?? "");
+            setRouteStack((current) => {
+              if (current.length === 0) return current;
+              const next = [...current];
+              next.pop();
+              const parent = next[next.length - 1];
+              if (!parent || parent.kind !== "workflow") {
+                return next;
+              }
+              next[next.length - 1] = applyWorkflowSelectValue(parent, fieldId, option.id);
+              return next;
+            });
             return;
           }
           if (parentKind === "pane-settings") {
@@ -4889,22 +4900,24 @@ export function CommandBar({
                     )}
                   </box>
                 ) : (
-                  <TextField
-                    inputRef={getInputRef(workflowInputRefs.current, field.id) as RefObject<InputRenderable | null>}
-                    type={field.type === "password" ? "password" : "text"}
-                    value={coerceFieldString(value)}
-                    placeholder={field.placeholder}
-                    focused={active && !currentRoute.pending}
-                    onChange={(nextValue) => updateWorkflowValue(field.id, nextValue)}
-                    onSubmit={() => {
-                      const index = visibleFields.findIndex((entry) => entry.id === field.id);
-                      if (index === visibleFields.length - 1) {
-                        void submitWorkflowRoute(currentRoute);
-                      } else {
-                        moveWorkflowFocus(1);
-                      }
-                    }}
-                  />
+                  <box flexDirection="column">
+                    <TextField
+                      inputRef={getInputRef(workflowInputRefs.current, field.id) as RefObject<InputRenderable | null>}
+                      type={field.type === "password" ? "password" : "text"}
+                      value={coerceFieldString(value)}
+                      placeholder={field.placeholder}
+                      focused={active && !currentRoute.pending}
+                      onChange={(nextValue) => updateWorkflowValue(field.id, nextValue)}
+                      onSubmit={() => {
+                        const index = visibleFields.findIndex((entry) => entry.id === field.id);
+                        if (index === visibleFields.length - 1) {
+                          void submitWorkflowRoute(currentRoute);
+                        } else {
+                          moveWorkflowFocus(1);
+                        }
+                      }}
+                    />
+                  </box>
                 )
               ) : (
                 <box

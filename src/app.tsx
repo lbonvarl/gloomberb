@@ -125,6 +125,7 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
   const renderer = useRenderer();
   const dialog = useDialog();
   const stateRef = useRef(state);
+  const brokerSyncInFlightRef = useRef(new Set<string>());
   stateRef.current = state;
   const focusedCollectionId = getFocusedCollectionId(state);
 
@@ -474,6 +475,11 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
     tickerMap?: Map<string, TickerRecord>,
     options?: { refreshImportedTickers?: boolean },
   ) => {
+    if (brokerSyncInFlightRef.current.has(instanceId)) {
+      return null;
+    }
+    brokerSyncInFlightRef.current.add(instanceId);
+    try {
     const result = await syncBrokerInstance({
       config: state.config,
       instanceId,
@@ -501,12 +507,20 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
     for (const position of result.positions) {
       // Skip Yahoo Finance for options — IBKR symbols aren't resolvable there.
       // Position data (markPrice, marketValue, unrealizedPnl) is used directly.
-      if (options?.refreshImportedTickers !== false && position.assetCategory !== "OPT") {
+      const isResolvableImportedSymbol = position.exchange !== "FINARY";
+      if (
+        options?.refreshImportedTickers !== false
+        && position.assetCategory !== "OPT"
+        && isResolvableImportedSymbol
+      ) {
         refreshQuote(position.ticker, position.exchange, undefined, 1);
       }
     }
 
     return result;
+    } finally {
+      brokerSyncInFlightRef.current.delete(instanceId);
+    }
   }, [dispatch, pluginRegistry.brokers, pluginRegistry.events, pluginRegistry.persistence.resources, refreshQuote, state.config, state.tickers, tickerRepository]);
 
   // Auto-import positions from all configured broker instances
@@ -523,7 +537,7 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
         // Silently fail — broker import is best-effort on startup
       }
     }
-  }, [state.config.brokerInstances, importBrokerPositions]);
+  }, [importBrokerPositions, state.config.brokerInstances]);
 
   const runUpdateCheck = useCallback(async (manual = false) => {
     if (manual) {
