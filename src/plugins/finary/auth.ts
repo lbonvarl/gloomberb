@@ -119,13 +119,9 @@ export async function loadFintermFinaryPortfolio(instance: BrokerInstanceConfig)
 
   const config = normalizeFinaryConfig(instance.config);
   const fintermDir = resolveFintermDir(instance);
+  const fintermBinary = join(fintermDir, "target", "debug", "finterm");
   const command = [
-    "cargo",
-    "run",
-    "-q",
-    "-p",
-    "finterm",
-    "--",
+    fintermBinary,
     "finary-export-json",
     "--email",
     config.email,

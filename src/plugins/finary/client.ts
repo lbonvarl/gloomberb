@@ -16,13 +16,19 @@ interface CachedSnapshot {
 const snapshotCache: Map<string, CachedSnapshot> = (globalThis as any).__finarySnapshotCache ??= new Map();
 
 function mapAccount(account: FintermFinaryAccount): BrokerAccount {
+  const institution = account.institution?.trim();
+  const name = account.name.trim();
+  const displayName = institution && institution !== name ? `${institution} - ${name}` : name;
+  const isCashAccount = ["bank_account", "savings", "employee_savings"].includes(account.account_type);
+
   return {
     accountId: account.id,
-    name: account.institution?.trim() || account.name,
+    name: displayName,
     currency: account.currency || "EUR",
     source: account.sync_source,
     updatedAt: account.last_sync_at ? Date.parse(account.last_sync_at) : undefined,
     netLiquidation: account.balance,
+    totalCashValue: isCashAccount ? account.balance : undefined,
     ownership: account.ownership,
   };
 }
@@ -38,6 +44,13 @@ function resolveTicker(holding: FintermFinaryHolding): string | null {
 function mapPosition(account: FintermFinaryAccount, holding: FintermFinaryHolding): BrokerPosition | null {
   const ticker = resolveTicker(holding);
   if (!ticker) return null;
+
+  let assetCategory = "OTHER";
+  const rawType = holding.asset_type.toLowerCase();
+  if (rawType.includes("stock") || rawType.includes("etf")) assetCategory = "STK";
+  else if (rawType.includes("crypto")) assetCategory = "CRYPTO";
+  else if (rawType.includes("fund")) assetCategory = "FUND";
+
   return {
     ticker,
     exchange: "FINARY",
@@ -46,7 +59,7 @@ function mapPosition(account: FintermFinaryAccount, holding: FintermFinaryHoldin
     currency: holding.currency ?? account.currency ?? "EUR",
     accountId: account.id,
     name: holding.name,
-    assetCategory: holding.asset_type.toUpperCase(),
+    assetCategory,
     isin: holding.isin ?? undefined,
     markPrice: holding.current_price ?? undefined,
     marketValue: holding.current_value ?? undefined,
@@ -71,22 +84,30 @@ export class FinaryClient {
 
   async listAccounts(): Promise<BrokerAccount[]> {
     const snapshot = await this.loadSnapshot();
+    const validAccounts = snapshot.accounts.filter((account) => (
+      account.holdings.some((holding) => resolveTicker(holding) !== null)
+    ));
     finaryLog.info("Loaded Finary accounts", {
-      accountCount: snapshot.accounts.length,
+      totalCount: snapshot.accounts.length,
+      validCount: validAccounts.length,
     });
-    return snapshot.accounts.map(mapAccount);
+    return validAccounts.map(mapAccount);
   }
 
   async importPositions(): Promise<BrokerPosition[]> {
     const snapshot = await this.loadSnapshot();
-    const positions = snapshot.accounts.flatMap((account) => (
+    const validAccounts = snapshot.accounts.filter((account) => (
+      account.holdings.some((holding) => resolveTicker(holding) !== null)
+    ));
+    const positions = validAccounts.flatMap((account) => (
       account.holdings.flatMap((holding) => {
         const position = mapPosition(account, holding);
         return position ? [position] : [];
       })
     ));
     finaryLog.info("Imported Finary positions", {
-      accountCount: snapshot.accounts.length,
+      totalAccountCount: snapshot.accounts.length,
+      validAccountCount: validAccounts.length,
       positionCount: positions.length,
     });
     return positions;
