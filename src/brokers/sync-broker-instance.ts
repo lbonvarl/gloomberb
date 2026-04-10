@@ -222,9 +222,25 @@ function updateExistingTicker(
     ticker.metadata.isin = position.isin;
   }
 
-  const otherPositions = ticker.metadata.positions.filter(
-    (entry) => !(entry.brokerInstanceId === instance.id && entry.portfolio === portfolioId),
-  );
+  const otherPositions = ticker.metadata.positions.filter((entry) => {
+    // 1. Same instance and portfolio: always replace (standard update)
+    if (entry.brokerInstanceId === instance.id && entry.portfolio === portfolioId) {
+      return false;
+    }
+
+    // 2. Different instance but same broker type and same account ID:
+    // This happens if instance IDs change (e.g. finary-finary-14 -> finary-finary).
+    // We should prune these as they are likely duplicates from stale config.
+    if (
+      entry.broker === instance.brokerType &&
+      entry.brokerAccountId === position.accountId &&
+      entry.brokerAccountId != null
+    ) {
+      return false;
+    }
+
+    return true;
+  });
   ticker.metadata.positions = [...otherPositions, positionEntry];
   ticker.metadata.broker_contracts = mergeBrokerContracts(
     ticker.metadata.broker_contracts ?? [],
