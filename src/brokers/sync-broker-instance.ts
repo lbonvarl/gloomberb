@@ -46,9 +46,41 @@ function ensureBrokerPortfolio(
   name: string,
   currency: string,
   brokerAccountId?: string,
+  ownership?: BrokerAccount["ownership"],
 ): AppConfig {
-  if (config.portfolios.some((portfolio) => portfolio.id === portfolioId)) {
-    return config;
+  const existingIndex = config.portfolios.findIndex((portfolio) => portfolio.id === portfolioId);
+  const normalizedOwnership = ownership && ownership.length > 0
+    ? ownership.map((entry) => ({ name: entry.name, share: entry.share }))
+    : undefined;
+
+  if (existingIndex >= 0) {
+    const existing = config.portfolios[existingIndex]!;
+    const ownershipChanged = JSON.stringify(existing.ownership ?? []) !== JSON.stringify(normalizedOwnership ?? []);
+    if (
+      existing.name === name
+      && existing.currency === currency
+      && existing.brokerId === instance.brokerType
+      && existing.brokerInstanceId === instance.id
+      && existing.brokerAccountId === brokerAccountId
+      && !ownershipChanged
+    ) {
+      return config;
+    }
+
+    const portfolios = [...config.portfolios];
+    portfolios[existingIndex] = {
+      ...existing,
+      name,
+      currency,
+      brokerId: instance.brokerType,
+      brokerInstanceId: instance.id,
+      brokerAccountId,
+      ownership: normalizedOwnership,
+    };
+    return {
+      ...config,
+      portfolios,
+    };
   }
 
   return {
@@ -62,9 +94,21 @@ function ensureBrokerPortfolio(
         brokerId: instance.brokerType,
         brokerInstanceId: instance.id,
         brokerAccountId,
+        ownership: normalizedOwnership,
       },
     ],
   };
+}
+
+function pruneBrokerPortfolios(
+  config: AppConfig,
+  instance: BrokerInstanceConfig,
+  keepPortfolioIds: Set<string>,
+): AppConfig {
+  const portfolios = config.portfolios.filter((portfolio) => (
+    portfolio.brokerInstanceId !== instance.id || keepPortfolioIds.has(portfolio.id)
+  ));
+  return portfolios.length === config.portfolios.length ? config : { ...config, portfolios };
 }
 
 function maybePersistResolvedIbkrConnection(
@@ -242,6 +286,7 @@ export async function syncBrokerInstance({
       {
         name: account.name || account.accountId,
         currency: account.currency || "USD",
+        ownership: account.ownership,
       },
     ]),
   );
@@ -250,6 +295,7 @@ export async function syncBrokerInstance({
 
   let nextConfig = config;
   const accountIds = new Set<string>();
+  const accountIdsWithPositions = new Set<string>();
   for (const account of brokerAccounts) {
     if (account.accountId) {
       accountIds.add(account.accountId);
@@ -258,12 +304,17 @@ export async function syncBrokerInstance({
   for (const position of positions) {
     if (position.accountId) {
       accountIds.add(position.accountId);
+      accountIdsWithPositions.add(position.accountId);
     }
   }
 
   const portfolioIds: string[] = [];
-  if (accountIds.size > 0) {
-    for (const accountId of accountIds) {
+  const targetAccountIds = broker.pruneEmptyAccounts
+    ? accountIdsWithPositions
+    : accountIds;
+
+  if (targetAccountIds.size > 0) {
+    for (const accountId of targetAccountIds) {
       const portfolioId = buildBrokerPortfolioId(instance.id, accountId);
       const account = accountMetadata.get(accountId);
       nextConfig = ensureBrokerPortfolio(
@@ -273,10 +324,11 @@ export async function syncBrokerInstance({
         account?.name || accountId,
         account?.currency || "USD",
         accountId,
+        account?.ownership,
       );
       portfolioIds.push(portfolioId);
     }
-  } else {
+  } else if (!broker.pruneEmptyAccounts) {
     const defaultAccount = brokerAccounts[0];
     const portfolioId = buildBrokerPortfolioId(instance.id, defaultAccount?.accountId);
     const fallbackName = defaultAccount?.name || defaultAccount?.accountId || instance.label || broker.name;
@@ -287,8 +339,13 @@ export async function syncBrokerInstance({
       fallbackName,
       defaultAccount?.currency || "USD",
       defaultAccount?.accountId,
+      defaultAccount?.ownership,
     );
     portfolioIds.push(portfolioId);
+  }
+
+  if (broker.pruneEmptyAccounts) {
+    nextConfig = pruneBrokerPortfolios(nextConfig, instance, new Set(portfolioIds));
   }
 
   nextConfig = maybePersistResolvedIbkrConnection(nextConfig, instance, persistResolvedIbkrConnection);

@@ -39,6 +39,7 @@ Everything, from the portfolio list to broker integrations, is a plugin.
 Plugins can add tabs, columns, command bar commands, CLI commands, status bar widgets, and more.
 
 See **[PLUGINS.md](PLUGINS.md)** for the plugin API and the shared UI surface available through `gloomberb/components`.
+See **[FINARY.md](FINARY.md)** for the current Finary plugin architecture, setup, and known issues in this fork.
 
 ### Core plugins
 
@@ -80,10 +81,42 @@ See **[PLUGINS.md](PLUGINS.md)** for the plugin API and the shared UI surface av
 
 | Plugin | Description |
 |--------|-------------|
-| **IBKR** | Import positions from Flex Query or trade with Gateway API |
+| **IBKR** | Import positions from Flex Query or trade with Gateway API. |
+| **Finary** | Import one portfolio per synced Finary account, with ownership-aware portfolio views. |
 | **Manual Entry** | Manually add positions, saved locally |
 
 Toggleable plugins can be enabled/disabled from the command bar screen (`Ctrl+p`).
+
+### Finary setup
+
+The built-in `Finary` broker plugin uses the same broker setup flow as other connectors.
+
+Broker fields:
+
+- `Finterm Path`: optional path to your local `finterm` checkout. Defaults to `~/Dev/finterm`
+- `Email`: your Finary login email
+- `Password`: your Finary login password
+- `TOTP Secret`: optional TOTP code/secret passed through to the Rust Finary client when MFA is required
+
+Recommended flow:
+
+1. Open the command bar with `Ctrl+P`
+2. Create or connect a broker instance for `Finary`
+3. Fill in the fields above
+4. Sync the broker instance
+
+What happens on sync:
+
+- Gloomberb shells out to your local `finterm` binary path and uses its Rust Finary client/auth logic
+- Gloomberb creates one broker portfolio per Finary account
+- accounts with zero imported positions are pruned and do not stay as empty portfolios
+- account ownership metadata is stored on each imported portfolio
+- in the `Portfolio` pane settings, `Owner View` lets you switch between `All Owners` and each detected owner
+- when an owner is selected, totals and row values are weighted by that owner's share
+
+Current note:
+
+- the Finary bridge works, but broker setup/edit UX and Rust stderr surfacing still have known rough edges; see `FINARY.md`
 
 ## 💻 CLI
 

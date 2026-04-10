@@ -6,6 +6,7 @@ import type {
 } from "./workflow-types";
 import {
   buildGeneratedTemplateField,
+  applyWorkflowSelectValue,
   getCollectionCommandAction,
   getCollectionCommandKind,
   getCollectionCommandVerb,
@@ -58,6 +59,42 @@ describe("command-bar helpers", () => {
       "enabled",
     ]);
     expect(getFirstVisibleFieldId(workflowFields, { source: "broker" })).toBe("source");
+  });
+
+  test("moves workflow focus to the first newly visible field after a select change", () => {
+    const route = {
+      kind: "workflow",
+      title: "Broker",
+      fields: [
+        {
+          id: "brokerType",
+          label: "Broker",
+          type: "select",
+          options: [
+            { label: "IBKR", value: "ibkr" },
+            { label: "Finary", value: "finary" },
+          ],
+        },
+        {
+          id: "ibkr:token",
+          label: "Flex Token",
+          type: "password",
+          dependsOn: [{ key: "brokerType", value: "ibkr" }],
+        },
+        {
+          id: "finary:email",
+          label: "Email",
+          type: "text",
+          dependsOn: [{ key: "brokerType", value: "finary" }],
+        },
+      ],
+      values: { brokerType: "ibkr" },
+      activeFieldId: "brokerType",
+    } as const;
+
+    const next = applyWorkflowSelectValue(route as any, "brokerType", "finary");
+    expect(next.values.brokerType).toBe("finary");
+    expect(next.activeFieldId).toBe("finary:email");
   });
 
   test("summarizes workflow field values using labels and truncation", () => {

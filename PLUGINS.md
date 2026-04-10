@@ -85,6 +85,8 @@ The `setup()` function receives a context object with these capabilities:
 | `ctx.registerShortcut(shortcut)` | Add a global keyboard shortcut |
 | `ctx.registerTickerAction(action)` | Add a per-ticker action (shown via `a` key) |
 
+Broker adapters can also declare integration-specific behavior flags such as `authStrategy` and `pruneEmptyAccounts`. In this fork, the built-in `finary` broker uses `pruneEmptyAccounts` so broker accounts with zero imported positions do not materialize as empty portfolios.
+
 ### CLI commands
 
 Plugins can also declare root CLI commands directly on the plugin object:

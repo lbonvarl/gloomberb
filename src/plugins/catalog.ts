@@ -28,6 +28,7 @@ import { fxMatrixPlugin } from "./builtin/fx-matrix";
 import { yieldCurvePlugin } from "./builtin/yield-curve";
 import { sectorsPlugin } from "./builtin/sectors";
 import { earningsPlugin } from "./builtin/earnings";
+import { finaryPlugin } from "./finary";
 
 export interface PluginCatalogEntry {
   plugin: GloomPlugin;
@@ -43,6 +44,7 @@ export const builtinPlugins: GloomPlugin[] = [
   tickerDetailPlugin,
   manualEntryPlugin,
   ibkrPlugin,
+  finaryPlugin,
   layoutManagerPlugin,
   newsPlugin,
   secPlugin,

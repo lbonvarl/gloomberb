@@ -26,6 +26,16 @@ interface PersistedConversation {
   messages: ChatMessage[];
 }
 
+function areMessagesEqual(left: ChatMessage[], right: ChatMessage[]): boolean {
+  return left.length === right.length && left.every((message, index) => {
+    const other = right[index];
+    return !!other
+      && message.role === other.role
+      && message.content === other.content
+      && message.loading === other.loading;
+  });
+}
+
 const ASK_AI_HISTORY_LIMIT = 40;
 const ASK_AI_RETENTION_MS = 90 * 24 * 60 * 60_000;
 const chatHistories = new Map<string, ChatMessage[]>();
@@ -77,6 +87,8 @@ export function AskAiDetailTab({ width, height, focused, onCapture }: DetailTabP
   const defaultProviderId = resolveDefaultAiProviderId(providers);
   const [providerId, setProviderId] = usePluginState<string>("providerId", defaultProviderId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const hydratedConversationKeyRef = useRef<string | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<InputRenderable>(null);
@@ -86,6 +98,7 @@ export function AskAiDetailTab({ width, height, focused, onCapture }: DetailTabP
   const currentProvider = providers.find((provider) => provider.id === providerId && provider.available)
     ?? providers.find((provider) => provider.id === defaultProviderId)
     ?? providers[0];
+  messagesRef.current = messages;
 
   const tickerSymbol = ticker?.metadata.ticker ?? null;
   const conversationKey = tickerSymbol && currentProvider
@@ -98,8 +111,15 @@ export function AskAiDetailTab({ width, height, focused, onCapture }: DetailTabP
   );
 
   useEffect(() => {
+    if (hydratedConversationKeyRef.current === conversationKey) {
+      return;
+    }
+    hydratedConversationKeyRef.current = conversationKey;
+
     if (!tickerSymbol) {
-      setMessages((previous) => (previous.length === 0 ? previous : []));
+      if (messagesRef.current.length > 0) {
+        setMessages([]);
+      }
       return;
     }
 
@@ -108,12 +128,10 @@ export function AskAiDetailTab({ width, height, focused, onCapture }: DetailTabP
     }
 
     const nextMessages = chatHistories.get(tickerSymbol) ?? [];
-    setMessages((previous) => (
-      previous.length === nextMessages.length && previous.every((message, index) => message === nextMessages[index])
-        ? previous
-        : nextMessages
-    ));
-  }, [persistedConversation, tickerSymbol]);
+    if (!areMessagesEqual(messagesRef.current, nextMessages)) {
+      setMessages(nextMessages);
+    }
+  }, [conversationKey, persistedConversation, tickerSymbol]);
 
   useEffect(() => {
     if (!tickerSymbol || !currentProvider || messages.length === 0) return;
@@ -124,11 +142,14 @@ export function AskAiDetailTab({ width, height, focused, onCapture }: DetailTabP
     }
     const trimmed = messages.slice(-ASK_AI_HISTORY_LIMIT);
     chatHistories.set(tickerSymbol, trimmed);
+    if (persistedConversation && areMessagesEqual(persistedConversation.messages, trimmed)) {
+      return;
+    }
     setPersistedConversation({
       updatedAt: Date.now(),
       messages: trimmed,
     });
-  }, [currentProvider, messages, setPersistedConversation, tickerSymbol]);
+  }, [currentProvider, messages, persistedConversation, setPersistedConversation, tickerSymbol]);
 
   useEffect(() => {
     const sb = scrollRef.current;

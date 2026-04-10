@@ -10,6 +10,7 @@ import type {
   CommandBarFieldValue,
   CommandBarRoute,
   CommandBarWorkflowField,
+  CommandBarWorkflowRoute,
 } from "./workflow-types";
 import type { CollectionKind, CollectionMembershipAction } from "./workflow-ops";
 
@@ -53,6 +54,22 @@ export function getVisibleWorkflowFields(
     if (!field.dependsOn || field.dependsOn.length === 0) return true;
     return field.dependsOn.every((dependency) => String(values[dependency.key] ?? "") === dependency.value);
   });
+}
+
+export function applyWorkflowSelectValue(
+  route: CommandBarWorkflowRoute,
+  fieldId: string,
+  value: string,
+): CommandBarWorkflowRoute {
+  const nextValues = { ...route.values, [fieldId]: value };
+  const visibleFields = getVisibleWorkflowFields(route.fields, nextValues);
+  const nextActiveFieldId = visibleFields.find((field) => field.id !== fieldId)?.id ?? fieldId;
+  return {
+    ...route,
+    values: nextValues,
+    activeFieldId: nextActiveFieldId,
+    error: null,
+  };
 }
 
 export function coerceFieldString(value: CommandBarFieldValue | undefined): string {

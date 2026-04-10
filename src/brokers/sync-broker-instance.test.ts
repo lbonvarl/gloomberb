@@ -44,7 +44,12 @@ function createDemoBroker(): BrokerAdapter {
     name: "Demo Broker",
     configSchema: [{ key: "apiKey", label: "API Key", type: "text", required: true }],
     validate: async () => true,
-    listAccounts: async () => [{ accountId: "ACC-1", name: "Primary", currency: "USD" }],
+    listAccounts: async () => [{
+      accountId: "ACC-1",
+      name: "Primary",
+      currency: "USD",
+      ownership: [{ name: "Loic", share: 0.5 }],
+    }],
     importPositions: async () => [{
       ticker: "AAPL",
       exchange: "NASDAQ",
@@ -83,6 +88,7 @@ describe("syncBrokerInstance", () => {
         brokerId: "demo",
         brokerInstanceId: "demo-broker",
         brokerAccountId: "ACC-1",
+        ownership: [{ name: "Loic", share: 0.5 }],
       },
     ]);
     expect(result.positions).toHaveLength(1);

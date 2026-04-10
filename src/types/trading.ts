@@ -1,5 +1,10 @@
 import type { BrokerContractRef } from "./instrument";
 
+export interface BrokerAccountOwnerShare {
+  name: string;
+  share: number;
+}
+
 export type BrokerOrderAction = "BUY" | "SELL";
 export type BrokerOrderType = "MKT" | "LMT" | "STP" | "STP LMT";
 
@@ -14,7 +19,7 @@ export interface BrokerAccount {
   accountId: string;
   name: string;
   currency?: string;
-  source?: "gateway" | "flex";
+  source?: string;
   updatedAt?: number;
   netLiquidation?: number;
   totalCashValue?: number;
@@ -25,6 +30,7 @@ export interface BrokerAccount {
   initMarginReq?: number;
   maintMarginReq?: number;
   cashBalances?: BrokerCashBalance[];
+  ownership?: BrokerAccountOwnerShare[];
 }
 
 export interface BrokerOrderRequest {

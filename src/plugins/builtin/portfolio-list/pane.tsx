@@ -19,6 +19,7 @@ import { getCollectionTickers, getCollectionType } from "../../../state/selector
 import { useQuoteStreaming } from "../../../state/use-quote-streaming";
 import { selectEffectiveExchangeRates } from "../../../utils/exchange-rate-map";
 import { getActiveQuoteDisplay } from "../../../utils/market-status";
+import { getPortfolioOwnerShare } from "../../../utils/portfolio-ownership";
 import type { ColumnConfig } from "../../../types/config";
 import type { TickerRecord } from "../../../types/ticker";
 import type { PaneProps } from "../../../types/plugin";
@@ -186,6 +187,10 @@ export function PortfolioListPane({ focused, width, height }: PaneProps) {
   }, [marketFinancialsMap, sharedCoordinator, state.financials]);
 
   const accountState = usePortfolioAccountState(currentPortfolio, state);
+  const ownershipScale = useMemo(
+    () => getPortfolioOwnerShare(currentPortfolio, paneSettings.ownerFilter),
+    [currentPortfolio, paneSettings.ownerFilter],
+  );
   const columns = useMemo(
     () => resolveVisibleColumns(paneSettings.columnIds, isPortfolioTab),
     [isPortfolioTab, paneSettings.columnIds],
@@ -203,7 +208,8 @@ export function PortfolioListPane({ focused, width, height }: PaneProps) {
     baseCurrency: state.config.baseCurrency,
     exchangeRates: effectiveExchangeRates,
     now,
-  }), [activeCollectionId, effectiveExchangeRates, isPortfolioTab, now, state.config.baseCurrency]);
+    ownershipScale,
+  }), [activeCollectionId, effectiveExchangeRates, isPortfolioTab, now, ownershipScale, state.config.baseCurrency]);
 
   const activeSort = resolveCollectionSortPreference(activeCollectionId, isPortfolioTab, collectionSorts);
   const sortedTickers = useMemo(
@@ -507,6 +513,8 @@ export function PortfolioListPane({ focused, width, height }: PaneProps) {
               refreshingCount={state.refreshing.size}
               isPortfolio={isPortfolioTab}
               collectionId={activeCollectionId}
+              ownerFilter={paneSettings.ownerFilter}
+              portfolio={currentPortfolio}
               width={Math.max(0, width)}
               accountState={accountState}
             />
@@ -535,11 +543,12 @@ export function PortfolioListPane({ focused, width, height }: PaneProps) {
 
       {showCashDrawer && accountState && (
         <box height={drawerHeight} paddingX={1}>
-          <PortfolioCashMarginDrawer
-            accountState={accountState}
-            expanded={cashDrawerExpanded}
-            onToggle={() => setCashDrawerExpanded(!cashDrawerExpanded)}
-            width={Math.max(0, width - 2)}
+            <PortfolioCashMarginDrawer
+              accountState={accountState}
+              ownershipScale={ownershipScale}
+              expanded={cashDrawerExpanded}
+              onToggle={() => setCashDrawerExpanded(!cashDrawerExpanded)}
+              width={Math.max(0, width - 2)}
             height={drawerHeight}
           />
         </box>

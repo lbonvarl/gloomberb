@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { act, useReducer } from "react";
+import { act, useReducer, type ReactNode } from "react";
 import { testRender } from "@opentui/react/test-utils";
 import { AppPersistence } from "../../data/app-persistence";
 import { AppContext, appReducer, createInitialState, PaneInstanceProvider, type AppAction } from "../../state/app-context";
@@ -14,7 +14,7 @@ import type { TickerRecord } from "../../types/ticker";
 import { MarketDataCoordinator, setSharedMarketDataCoordinator } from "../../market-data/coordinator";
 import { setSharedRegistryForTests } from "../registry";
 import { ibkrGatewayManager } from "../ibkr/gateway-service";
-import { portfolioListPlugin } from "./portfolio-list";
+import { PortfolioListPane } from "./portfolio-list/pane";
 
 const TEST_PANE_ID = "portfolio-list:test";
 
@@ -24,13 +24,13 @@ let sharedCoordinator: MarketDataCoordinator | null = null;
 let harnessState: ReturnType<typeof createInitialState> | null = null;
 const tempPaths: string[] = [];
 
-const PortfolioPane = portfolioListPlugin.panes![0]!.component as (props: {
+const PortfolioPane = PortfolioListPane as (props: {
   paneId: string;
   paneType: string;
   focused: boolean;
   width: number;
   height: number;
-}) => JSX.Element;
+}) => ReactNode;
 
 function createBrokerInstance(connectionMode: "gateway" | "flex", id = `ibkr-${connectionMode}`): BrokerInstanceConfig {
   return {
@@ -136,6 +136,16 @@ function createPortfolioConfig(portfolioId: string, brokerInstances: BrokerInsta
     layout,
     layouts: [{ name: "Default", layout: cloneLayout(layout) }],
   };
+}
+
+function setPaneSettings(config: AppConfig, settings: Record<string, unknown>) {
+  const instance = config.layout.instances.find((entry) => entry.instanceId === TEST_PANE_ID);
+  if (instance) {
+    instance.settings = {
+      ...(instance.settings ?? {}),
+      ...settings,
+    };
+  }
 }
 
 function createPortfolioConfigWithColumns(
@@ -250,23 +260,16 @@ afterEach(async () => {
 });
 
 describe("PortfolioListPane cash and margin UI", () => {
-  test("defaults new portfolio panes to floating", () => {
-    const paneDef = portfolioListPlugin.panes?.find((entry) => entry.id === "portfolio-list");
-
-    expect(paneDef?.defaultMode).toBe("floating");
-  });
-
   test("keeps non-broker portfolios unchanged", async () => {
     const config = createDefaultConfig("/tmp/gloomberb-portfolio-list");
     const layout = {
-      columns: [{ width: "100%" }],
+      dockRoot: { kind: "pane" as const, instanceId: TEST_PANE_ID },
       instances: [{
         instanceId: TEST_PANE_ID,
         paneId: "portfolio-list",
         binding: { kind: "none" as const },
         params: { collectionId: "main" },
       }],
-      docked: [{ instanceId: TEST_PANE_ID, columnIndex: 0 }],
       floating: [],
     };
     const nextConfig = { ...config, layout, layouts: [{ name: "Default", layout: cloneLayout(layout) }] };
@@ -280,6 +283,69 @@ describe("PortfolioListPane cash and margin UI", () => {
 
     const frame = testSetup.captureCharFrame();
     expect(frame).not.toContain("Cash & Margin");
+  });
+
+  test("filters portfolios and weights values for the selected owner", async () => {
+    const config = createPortfolioConfig("broker:ibkr-flex:DU12345", [createBrokerInstance("flex")]);
+    config.portfolios = [
+      {
+        id: "broker:ibkr-flex:DU12345",
+        name: "Flex DU12345",
+        currency: "USD",
+        brokerId: "ibkr",
+        brokerInstanceId: "ibkr-flex",
+        brokerAccountId: "DU12345",
+        ownership: [{ name: "Loic", share: 0.5 }],
+      },
+      {
+        id: "broker:ibkr-live:DU99999",
+        name: "Live DU99999",
+        currency: "USD",
+        brokerId: "ibkr",
+        brokerInstanceId: "ibkr-live",
+        brokerAccountId: "DU99999",
+        ownership: [{ name: "Marie", share: 1 }],
+      },
+    ];
+    setPaneSettings(config, { ownerFilter: "Loic" });
+
+    const ticker = makeTicker({
+      portfolios: ["broker:ibkr-flex:DU12345", "broker:ibkr-live:DU99999"],
+      positions: [
+        {
+          portfolio: "broker:ibkr-flex:DU12345",
+          shares: 10,
+          avgCost: 100,
+          currency: "USD",
+          broker: "ibkr",
+          brokerInstanceId: "ibkr-flex",
+          brokerAccountId: "DU12345",
+        },
+        {
+          portfolio: "broker:ibkr-live:DU99999",
+          shares: 3,
+          avgCost: 100,
+          currency: "USD",
+          broker: "ibkr",
+          brokerInstanceId: "ibkr-live",
+          brokerAccountId: "DU99999",
+        },
+      ],
+    });
+
+    testSetup = await testRender(
+      <PortfolioHarness config={config} collectionId="broker:ibkr-flex:DU12345" ticker={ticker} />,
+      { width: 100, height: 24 },
+    );
+    await flushFrame();
+
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("Flex DU12345");
+    expect(frame).not.toContain("Live DU99999");
+    expect(frame).toContain("Val 625");
+    expect(frame).toContain("5");
+    expect(frame).toContain("500");
+    expect(frame).toContain("+125");
   });
 
   test("keeps native price and avg cost while converting market value and pnl to base currency", async () => {

@@ -8,6 +8,7 @@ import { formatCompact, formatPercentRaw, padTo } from "../../../utils/format";
 import { formatMarketQuantity } from "../../../utils/market-format";
 import { getMostRecentQuoteUpdate } from "../../../utils/quote-time";
 import { ibkrGatewayManager } from "../../ibkr/gateway-service";
+import { getPortfolioOwnerShare } from "../../../utils/portfolio-ownership";
 import { calculatePortfolioSummaryTotals } from "./metrics";
 import {
   buildDrawerMetricSegments,
@@ -38,18 +39,22 @@ export function usePortfolioAccountState(
 
 export function PortfolioCashMarginDrawer({
   accountState,
+  ownershipScale,
   expanded,
   onToggle,
   width,
   height,
 }: {
   accountState: ResolvedPortfolioAccountState;
+  ownershipScale?: number;
   expanded: boolean;
   onToggle: () => void;
   width: number;
   height: number;
 }) {
-  const previewText = `${accountState.visibleCashBalances.length} ccy · Cash ${formatCompact(accountState.account.totalCashValue)} · ${accountState.sourceLabel}`;
+  const scale = ownershipScale ?? 1;
+  const scaledCashValue = accountState.account.totalCashValue != null ? accountState.account.totalCashValue * scale : 0;
+  const previewText = `${accountState.visibleCashBalances.length} ccy · Cash ${formatCompact(scaledCashValue)} · ${accountState.sourceLabel}`;
   const drawerHeight = Math.max(1, height);
 
   if (!expanded) {
@@ -76,7 +81,16 @@ export function PortfolioCashMarginDrawer({
     );
   }
 
-  const metricSegments = buildDrawerMetricSegments(accountState.account, width);
+  const scaledAccount = {
+    ...accountState.account,
+    totalCashValue: accountState.account.totalCashValue != null ? accountState.account.totalCashValue * scale : undefined,
+    settledCash: accountState.account.settledCash != null ? accountState.account.settledCash * scale : undefined,
+    netLiquidation: accountState.account.netLiquidation != null ? accountState.account.netLiquidation * scale : undefined,
+    availableFunds: accountState.account.availableFunds != null ? accountState.account.availableFunds * scale : undefined,
+    excessLiquidity: accountState.account.excessLiquidity != null ? accountState.account.excessLiquidity * scale : undefined,
+    buyingPower: accountState.account.buyingPower != null ? accountState.account.buyingPower * scale : undefined,
+  };
+  const metricSegments = buildDrawerMetricSegments(scaledAccount, width);
   const currencyRowsHeight = Math.max(1, drawerHeight - 2);
 
   return (
@@ -111,9 +125,9 @@ export function PortfolioCashMarginDrawer({
             <box key={balance.currency} height={1} flexDirection="row">
               <text fg={colors.textBright}>{padTo(balance.currency, 4)}</text>
               <text fg={colors.textDim}>{" qty "}</text>
-              <text fg={colors.text}>{padTo(formatMarketQuantity(balance.quantity, { isCashBalance: true, maxWidth: 14 }), 14, "right")}</text>
+              <text fg={colors.text}>{padTo(formatMarketQuantity(balance.quantity * scale, { isCashBalance: true, maxWidth: 14 }), 14, "right")}</text>
               <text fg={colors.textDim}>{"  value "}</text>
-              <text fg={colors.text}>{padTo(balance.baseValue != null ? formatCompact(balance.baseValue) : "—", 10, "right")}</text>
+              <text fg={colors.text}>{padTo(balance.baseValue != null ? formatCompact(balance.baseValue * scale) : "—", 10, "right")}</text>
             </box>
           ))
         )}
@@ -130,6 +144,8 @@ export const PortfolioSummaryBar = memo(function PortfolioSummaryBar({
   refreshingCount,
   isPortfolio,
   collectionId,
+  ownerFilter,
+  portfolio,
   width,
   accountState,
 }: {
@@ -140,6 +156,8 @@ export const PortfolioSummaryBar = memo(function PortfolioSummaryBar({
   refreshingCount: number;
   isPortfolio: boolean;
   collectionId: string | null;
+  ownerFilter: string;
+  portfolio: Portfolio | null;
   width: number;
   accountState: ResolvedPortfolioAccountState | null;
 }) {
@@ -166,6 +184,7 @@ export const PortfolioSummaryBar = memo(function PortfolioSummaryBar({
     }
   }, [financialsMap.size, lastRefresh]);
 
+  const ownershipScale = isPortfolio ? getPortfolioOwnerShare(portfolio, ownerFilter) : 1;
   const totals = useMemo(
     () => calculatePortfolioSummaryTotals(
       tickers,
@@ -174,8 +193,9 @@ export const PortfolioSummaryBar = memo(function PortfolioSummaryBar({
       exchangeRates,
       isPortfolio,
       collectionId,
+      ownershipScale,
     ),
-    [baseCurrency, collectionId, exchangeRates, financialsMap, isPortfolio, tickers],
+    [baseCurrency, collectionId, exchangeRates, financialsMap, isPortfolio, ownershipScale, tickers],
   );
 
   const refreshTimestamp = lastRefreshTimestamp ?? lastRefresh?.getTime() ?? null;
@@ -201,7 +221,18 @@ export const PortfolioSummaryBar = memo(function PortfolioSummaryBar({
 
   const segments = buildPortfolioSummarySegments({
     totals,
-    accountState: accountState ? { account: accountState.account, sourceLabel: accountState.sourceLabel } : null,
+    accountState: accountState ? {
+      account: {
+        ...accountState.account,
+        netLiquidation: accountState.account.netLiquidation != null ? accountState.account.netLiquidation * ownershipScale : undefined,
+        totalCashValue: accountState.account.totalCashValue != null ? accountState.account.totalCashValue * ownershipScale : undefined,
+        settledCash: accountState.account.settledCash != null ? accountState.account.settledCash * ownershipScale : undefined,
+        buyingPower: accountState.account.buyingPower != null ? accountState.account.buyingPower * ownershipScale : undefined,
+        availableFunds: accountState.account.availableFunds != null ? accountState.account.availableFunds * ownershipScale : undefined,
+        excessLiquidity: accountState.account.excessLiquidity != null ? accountState.account.excessLiquidity * ownershipScale : undefined,
+      },
+      sourceLabel: accountState.sourceLabel,
+    } : null,
     widthBudget: width,
     refreshText: isRefreshing ? "Refreshing…" : refreshText,
   });

@@ -17,6 +17,7 @@ export interface TextFieldProps {
   textColor?: string;
   placeholderColor?: string;
   onMouseDown?: () => void;
+  showDisplayOverlay?: boolean;
 }
 
 const PASSWORD_MASK_CHAR = "*";
@@ -40,16 +41,20 @@ export function TextField({
   textColor = colors.text,
   placeholderColor = colors.textDim,
   onMouseDown,
+  showDisplayOverlay = false,
 }: TextFieldProps) {
   const localInputRef = useRef<InputRenderable>(null);
   const resolvedInputRef = inputRef ?? localInputRef;
   const currentValueRef = useRef(value ?? "");
   const [cursorOffset, setCursorOffset] = useState((value ?? "").length);
   const isPassword = type === "password";
+  const useOverlay = isPassword || showDisplayOverlay;
   const currentValue = value ?? "";
   const maskedValue = maskPassword(currentValue);
-  const maskedDisplay = maskedValue.length > 0 ? maskedValue : (placeholder ?? "");
-  const maskedTextColor = maskedValue.length > 0 ? textColor : placeholderColor;
+  const displayValue = isPassword ? maskedValue : currentValue;
+  const placeholderDisplay = focused ? "" : (placeholder ?? "");
+  const visibleDisplay = displayValue.length > 0 ? displayValue : placeholderDisplay;
+  const visibleTextColor = displayValue.length > 0 || focused ? textColor : placeholderColor;
 
   useEffect(() => {
     currentValueRef.current = currentValue;
@@ -60,12 +65,12 @@ export function TextField({
     setCursorOffset(resolvedInputRef.current?.cursorOffset ?? fallbackValue.length);
   };
 
-  const maskedCursorOffset = currentValue.length > 0
+  const visibleCursorOffset = currentValue.length > 0
     ? Math.max(0, Math.min(cursorOffset, currentValue.length))
     : 0;
-  const maskedBefore = maskedDisplay.slice(0, maskedCursorOffset);
-  const maskedCursorChar = maskedDisplay[maskedCursorOffset] ?? " ";
-  const maskedAfter = maskedDisplay.slice(maskedCursorOffset + (maskedCursorOffset < maskedDisplay.length ? 1 : 0));
+  const visibleBefore = visibleDisplay.slice(0, visibleCursorOffset);
+  const visibleCursorChar = visibleDisplay[visibleCursorOffset] ?? " ";
+  const visibleAfter = visibleDisplay.slice(visibleCursorOffset + (visibleCursorOffset < visibleDisplay.length ? 1 : 0));
 
   return (
     <box flexDirection="column">
@@ -82,15 +87,15 @@ export function TextField({
           ref={resolvedInputRef}
           width={width}
           value={value}
-          selectable={!isPassword}
-          placeholder={isPassword ? "" : placeholder}
+          selectable={!useOverlay}
+          placeholder={useOverlay ? "" : placeholder}
           focused={focused}
-          textColor={isPassword ? backgroundColor : textColor}
+          textColor={useOverlay ? backgroundColor : textColor}
           placeholderColor={placeholderColor}
           backgroundColor={backgroundColor}
-          selectionBg={isPassword ? backgroundColor : undefined}
-          selectionFg={isPassword ? backgroundColor : undefined}
-          showCursor={!isPassword}
+          selectionBg={useOverlay ? backgroundColor : undefined}
+          selectionFg={useOverlay ? backgroundColor : undefined}
+          showCursor={!useOverlay}
           onCursorChange={() => syncCursorOffset()}
           onInput={(nextValue) => {
             currentValueRef.current = nextValue;
@@ -104,7 +109,7 @@ export function TextField({
           }}
           onSubmit={() => onSubmit?.(currentValueRef.current)}
         />
-        {isPassword && (
+        {useOverlay && (
           <box
             position="absolute"
             left={0}
@@ -116,12 +121,12 @@ export function TextField({
               resolvedInputRef.current?.focus?.();
             }}
           >
-            <text fg={maskedTextColor} selectable={false}>
-              {maskedBefore}
+            <text fg={visibleTextColor} selectable={false}>
+              {visibleBefore}
               {focused && (
-                <span bg={maskedTextColor} fg={backgroundColor}>{maskedCursorChar}</span>
+                <span bg={visibleTextColor} fg={backgroundColor}>{visibleCursorChar}</span>
               )}
-              {focused ? maskedAfter : maskedDisplay.slice(maskedBefore.length)}
+              {focused ? visibleAfter : visibleDisplay.slice(visibleBefore.length)}
             </text>
           </box>
         )}
