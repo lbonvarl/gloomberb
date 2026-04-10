@@ -71,6 +71,28 @@ const mockPortfolio = {
         },
       ],
     },
+    {
+      id: "acc4",
+      name: "Non-trackable Holdings",
+      account_type: "brokerage",
+      institution: "Test",
+      balance: 1000,
+      currency: "EUR",
+      sync_source: "finary",
+      ownership: [{ name: "Loic", share: 1.0 }],
+      holdings: [
+        {
+          name: "Internal ID",
+          symbol: "FY0000094129",
+          asset_type: "stock",
+        },
+        {
+          name: "Liquidity",
+          symbol: "XX-LIQUIDITY",
+          asset_type: "stock",
+        },
+      ],
+    },
   ],
 };
 
@@ -80,7 +102,8 @@ describe("FinaryClient", () => {
     const client = new FinaryClient(mockInstance);
     
     const accounts = await client.listAccounts();
-    // Only acc1 has trackable holdings (AI.PA)
+    // Only acc1 has trackable holdings (AI.PA).
+    // acc2 is empty, acc3 is manual real estate (no ticker), acc4 has only non-trackable IDs.
     expect(accounts).toHaveLength(1);
     expect(accounts[0].accountId).toBe("acc1");
     expect(accounts[0].name).toBe("Fortuneo - PEA");

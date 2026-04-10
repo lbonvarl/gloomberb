@@ -33,11 +33,29 @@ function mapAccount(account: FintermFinaryAccount): BrokerAccount {
   };
 }
 
+function isValidTicker(symbol: string): boolean {
+  const s = symbol.trim().toUpperCase();
+  return (
+    s.length > 0 &&
+    !s.includes(" ") &&
+    !s.startsWith("FY-") &&
+    !s.startsWith("XX-") &&
+    !s.includes("LIQUIDITY") &&
+    // Filter out purely numeric or ID-like symbols if they don't look like standard tickers
+    // Finary IDs often look like FY0000094129 or just numeric IDs
+    !/^FY\d+$/.test(s)
+  );
+}
+
 function resolveTicker(holding: FintermFinaryHolding): string | null {
   const symbol = holding.symbol?.trim();
-  if (symbol) return symbol.replace(/\s+/g, "-").toUpperCase();
+  if (symbol && isValidTicker(symbol)) {
+    return symbol.replace(/\s+/g, "-").toUpperCase();
+  }
   const isin = holding.isin?.trim();
-  if (isin) return isin.toUpperCase();
+  if (isin && isValidTicker(isin)) {
+    return isin.toUpperCase();
+  }
   return null;
 }
 
