@@ -1,6 +1,8 @@
+import { isIsin } from "../../utils/format";
 import type { BrokerAccount } from "../../types/trading";
 import type { BrokerPosition } from "../../types/broker";
 import type { BrokerInstanceConfig } from "../../types/config";
+import type { DataProvider } from "../../types/data-provider";
 import { loadFintermFinaryPortfolio, type FintermFinaryAccount, type FintermFinaryHolding, type FintermFinaryPortfolio } from "./auth";
 import { debugLog } from "../../utils/debug-log";
 
@@ -59,8 +61,8 @@ function resolveTicker(holding: FintermFinaryHolding): string | null {
   return null;
 }
 
-function mapPosition(account: FintermFinaryAccount, holding: FintermFinaryHolding): BrokerPosition | null {
-  const ticker = resolveTicker(holding);
+function mapPosition(account: FintermFinaryAccount, holding: FintermFinaryHolding, resolvedTicker?: string): BrokerPosition | null {
+  const ticker = resolvedTicker || resolveTicker(holding);
   if (!ticker) return null;
 
   let assetCategory = "OTHER";
@@ -112,17 +114,46 @@ export class FinaryClient {
     return validAccounts.map(mapAccount);
   }
 
-  async importPositions(): Promise<BrokerPosition[]> {
+  async importPositions(dataProvider?: DataProvider): Promise<BrokerPosition[]> {
     const snapshot = await this.loadSnapshot();
     const validAccounts = snapshot.accounts.filter((account) => (
       account.holdings.some((holding) => resolveTicker(holding) !== null)
     ));
-    const positions = validAccounts.flatMap((account) => (
-      account.holdings.flatMap((holding) => {
-        const position = mapPosition(account, holding);
-        return position ? [position] : [];
-      })
-    ));
+    
+    const positions: BrokerPosition[] = [];
+    for (const account of validAccounts) {
+      for (const holding of account.holdings) {
+        let ticker = resolveTicker(holding);
+        if (!ticker) continue;
+
+        // If we have an ISIN and the ticker looks like a short/generic symbol (no dots),
+        // try to resolve the full Yahoo-style ticker via search.
+        if (holding.isin && (!ticker.includes(".") || isIsin(ticker)) && dataProvider) {
+          try {
+            const searchResults = await dataProvider.search(holding.isin);
+            // Find an exact ISIN match in search results, or fall back to the first result
+            // if it's a single high-confidence match for an ISIN query.
+            const isinMatch = searchResults.find(r => 
+              r.isin?.toUpperCase() === holding.isin?.toUpperCase() ||
+              r.symbol?.toUpperCase() === holding.isin?.toUpperCase()
+            ) || (searchResults.length === 1 ? searchResults[0] : null);
+
+            if (isinMatch) {
+              finaryLog.info(`Resolved Finary ISIN ${holding.isin} (${ticker}) to full ticker ${isinMatch.symbol}`);
+              ticker = isinMatch.symbol.toUpperCase();
+            }
+          } catch (err) {
+            finaryLog.error(`Failed to resolve ISIN ${holding.isin} for Finary import: ${err}`);
+          }
+        }
+
+        const position = mapPosition(account, holding, ticker);
+        if (position) {
+          positions.push(position);
+        }
+      }
+    }
+
     finaryLog.info("Imported Finary positions", {
       totalAccountCount: snapshot.accounts.length,
       validAccountCount: validAccounts.length,

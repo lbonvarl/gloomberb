@@ -433,6 +433,9 @@ export class YahooFinanceClient implements DataProvider {
   }
 
   private getSymbolsToTry(ticker: string, exchange: string): string[] {
+    // If it's an ISIN, try it directly
+    if (isIsin(ticker)) return [ticker];
+
     // If ticker already contains a Yahoo suffix, use it as-is
     if (this.tickerHasSuffix(ticker)) return [ticker];
 
@@ -878,6 +881,7 @@ export class YahooFinanceClient implements DataProvider {
         name: q.shortname || q.longname || "",
         exchange: q.exchDisp || q.exchange || "",
         type: q.quoteType || "",
+        isin: q.isin,
       }));
     } catch {
       return [];

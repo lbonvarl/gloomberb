@@ -217,18 +217,39 @@ export async function resolveTickerSearch({
     return { kind: "local", symbol: local.metadata.ticker, ticker: local };
   }
 
+  const searchResults = await searchProviderResults(dataProvider, symbol, searchContext);
   const providerItems = createProviderTickerSearchCandidates(
-    await searchProviderResults(dataProvider, symbol, searchContext),
+    searchResults,
     tickers,
   );
   const exactMatch = findExactTickerSearchMatch(providerItems, symbol);
-  if (!exactMatch?.result) return null;
+  
+  if (exactMatch?.result) {
+    return {
+      kind: "provider",
+      symbol: exactMatch.symbol,
+      result: exactMatch.result,
+    };
+  }
 
-  return {
-    kind: "provider",
-    symbol: exactMatch.symbol,
-    result: exactMatch.result,
-  };
+  // If it's an ISIN and we didn't find an exact match by symbol alias, 
+  // try to find a match where the result's name/isin matches the query,
+  // or if there is exactly one result for an ISIN query.
+  if (isIsin(symbol)) {
+    const isinMatch = searchResults.find(r => 
+      normalizeSearchText(r.isin || "") === normalizeSearchText(symbol)
+    ) || (searchResults.length === 1 ? searchResults[0] : null);
+
+    if (isinMatch) {
+      return {
+        kind: "provider",
+        symbol: getSearchResultSymbol(isinMatch),
+        result: isinMatch,
+      };
+    }
+  }
+
+  return null;
 }
 
 export async function upsertTickerFromSearchResult(

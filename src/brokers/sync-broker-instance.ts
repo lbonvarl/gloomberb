@@ -307,7 +307,7 @@ export async function syncBrokerInstance({
     ]),
   );
 
-  const positions = await broker.importPositions(instance);
+  const positions = await broker.importPositions(instance, args.dataProvider);
 
   let nextConfig = config;
   const accountIds = new Set<string>();
@@ -322,6 +322,25 @@ export async function syncBrokerInstance({
       accountIds.add(position.accountId);
       accountIdsWithPositions.add(position.accountId);
     }
+  }
+
+  // Pre-prune: Remove existing positions for this broker across ALL loaded tickers.
+  // This ensures that if a ticker symbol changed (e.g. CW8 -> CW8.PA), the old position 
+  // entry is removed even though it's technically under a different ticker record.
+  for (const ticker of tickers.values()) {
+    ticker.metadata.positions = ticker.metadata.positions.filter((p) => {
+      // Remove if it's the same instance
+      if (p.brokerInstanceId === instance.id) return false;
+      // Remove if it's the same broker type and belongs to one of the accounts we just loaded
+      if (
+        p.broker === instance.brokerType &&
+        p.brokerAccountId &&
+        accountIds.has(p.brokerAccountId)
+      ) {
+        return false;
+      }
+      return true;
+    });
   }
 
   const portfolioIds: string[] = [];
