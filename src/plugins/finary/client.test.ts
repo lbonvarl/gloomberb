@@ -106,7 +106,7 @@ describe("FinaryClient", () => {
     // acc2 is empty, acc3 is manual real estate (no ticker), acc4 has only non-trackable IDs.
     expect(accounts).toHaveLength(1);
     expect(accounts[0].accountId).toBe("acc1");
-    expect(accounts[0].name).toBe("Fortuneo - PEA");
+    expect(accounts[0].name).toBe("PEA");
   });
 
   it("should correctly map positions for valid accounts", async () => {

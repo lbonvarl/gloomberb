@@ -18,14 +18,12 @@ interface CachedSnapshot {
 const snapshotCache: Map<string, CachedSnapshot> = (globalThis as any).__finarySnapshotCache ??= new Map();
 
 function mapAccount(account: FintermFinaryAccount): BrokerAccount {
-  const institution = account.institution?.trim();
   const name = account.name.trim();
-  const displayName = institution && institution !== name ? `${institution} - ${name}` : name;
   const isCashAccount = ["bank_account", "savings", "employee_savings"].includes(account.account_type);
 
   return {
     accountId: account.id,
-    name: displayName,
+    name: name,
     currency: account.currency || "EUR",
     source: account.sync_source,
     updatedAt: account.last_sync_at ? Date.parse(account.last_sync_at) : undefined,
