@@ -221,6 +221,11 @@ export function convertCurrency(
   return (value * fromRate) / baseRate;
 }
 
+/** Check if a string looks like an ISIN (International Securities Identification Number) */
+export function isIsin(symbol: string): boolean {
+  return /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(symbol.toUpperCase());
+}
+
 /** Format a date/timestamp as relative time (e.g., "5m ago", "2h ago") */
 export function formatTimeAgo(date: Date | string): string {
   const ts = toTimestampMillis(date);

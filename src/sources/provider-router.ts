@@ -1,4 +1,4 @@
-import type { CachedResourceRecord, ResourceStore } from "../data/resource-store";
+import type { CachedResourceRecord, ResourceCacheKey, ResourceStore } from "../data/resource-store";
 import type { PluginRegistry } from "../plugins/registry";
 import type { BrokerAdapter } from "../types/broker";
 import type { AppConfig } from "../types/config";
@@ -24,6 +24,7 @@ import {
 } from "../components/chart/chart-resolution";
 import { hasLikelyQuoteUnitMismatch } from "../utils/currency-units";
 import { debugLog } from "../utils/debug-log";
+import { isIsin } from "../utils/format";
 import { normalizePriceHistory, normalizeTickerFinancialsPriceHistory } from "../utils/price-history";
 import { isQuoteStaleForCurrentSession } from "../utils/quote-freshness";
 import {
@@ -52,6 +53,7 @@ const DEFAULT_CACHE_POLICIES: Record<string, CachePolicy> = {
   articleSummary: { staleMs: 30 * 24 * 60 * 60_000, expireMs: 90 * 24 * 60 * 60_000 },
   optionsChain: { staleMs: 5 * 60_000, expireMs: 2 * 24 * 60 * 60_000 },
   exchangeRate: { staleMs: 60 * 60_000, expireMs: 7 * 24 * 60 * 60_000 },
+  resolvedTicker: { staleMs: 30 * 24 * 60 * 60_000, expireMs: 90 * 24 * 60 * 60_000 },
 };
 
 function withBrokerTimeout<T>(promise: Promise<T>): Promise<T | null> {
@@ -252,12 +254,54 @@ export class ProviderRouter implements DataProvider {
     this.getConfigFn = getConfig;
   }
 
+  private async resolveTicker(ticker: string, exchange?: string): Promise<string> {
+    if (!isIsin(ticker)) return ticker;
+
+    const cacheKey: ResourceCacheKey = {
+      namespace: MARKET_NAMESPACE,
+      kind: "resolved-ticker",
+      entityKey: ticker.toUpperCase(),
+      variantKey: exchange ? `exchange=${exchange.toUpperCase()}` : "",
+    };
+
+    if (this.resources) {
+      const cached = this.resources.get<string>(cacheKey);
+      if (cached && !cached.expired) {
+        return cached.value;
+      }
+    }
+
+    // Try providers for search resolution (Yahoo is best for ISINs)
+    const providers = this.providersInPriorityOrder();
+    for (const provider of providers) {
+      try {
+        const results = await provider.search(ticker);
+        const match = results[0];
+        if (match && match.symbol && match.symbol.toUpperCase() !== ticker.toUpperCase()) {
+          const resolved = match.symbol.toUpperCase();
+          if (this.resources) {
+            this.resources.set(cacheKey, resolved, {
+              cachePolicy: DEFAULT_CACHE_POLICIES.resolvedTicker!,
+            });
+          }
+          providerLog.info(`Resolved ISIN ${ticker} to ticker ${resolved} via ${provider.id}`);
+          return resolved;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return ticker;
+  }
+
   async canProvide(ticker: string, exchange?: string, context?: MarketDataRequestContext): Promise<boolean> {
-    const brokerQuote = await withBrokerTimeout(this.fetchBrokerQuote(ticker, exchange, context));
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const brokerQuote = await withBrokerTimeout(this.fetchBrokerQuote(resolvedTicker, exchange, context));
     if (brokerQuote) return true;
     for (const provider of this.providersInPriorityOrder()) {
       try {
-        if (!provider.canProvide || await provider.canProvide(ticker, exchange, context)) {
+        if (!provider.canProvide || await provider.canProvide(resolvedTicker, exchange, context)) {
           return true;
         }
       } catch {
@@ -290,38 +334,40 @@ export class ProviderRouter implements DataProvider {
   }
 
   async getTickerFinancials(ticker: string, exchange?: string, context?: MarketDataRequestContext): Promise<TickerFinancials> {
-    const cached = this.readCachedMergedFinancialsSelection(ticker, exchange, context, false);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const cached = this.readCachedMergedFinancialsSelection(resolvedTicker, exchange, context, false);
     const forceRefresh = context?.cacheMode === "refresh";
     if (cached.value && !forceRefresh) {
       if (!cached.stale && hasMeaningfulProfile(cached.value)) {
         return cached.value;
       }
       if (!hasMeaningfulProfile(cached.value) && !cached.stale) {
-        const providerResult = await this.fetchProviderFinancials(ticker, exchange, context);
+        const providerResult = await this.fetchProviderFinancials(resolvedTicker, exchange, context);
         return mergeFinancials(cached.value, providerResult?.value ?? null) ?? cached.value;
       }
     }
 
     if (cached.value) {
-      const brokerResult = await withBrokerTimeout(this.fetchBrokerFinancials(ticker, exchange, context));
-      const providerResult = await this.fetchProviderFinancials(ticker, exchange, context);
+      const brokerResult = await withBrokerTimeout(this.fetchBrokerFinancials(resolvedTicker, exchange, context));
+      const providerResult = await this.fetchProviderFinancials(resolvedTicker, exchange, context);
       return mergeFinancials(
         brokerResult?.value ?? cached.brokerRecord?.value ?? null,
         providerResult?.value ?? cached.providerValue ?? null,
       ) ?? cached.value;
     }
 
-    const brokerResult = await withBrokerTimeout(this.fetchBrokerFinancials(ticker, exchange, context));
-    const fallback = await this.fetchProviderFinancials(ticker, exchange, context);
+    const brokerResult = await withBrokerTimeout(this.fetchBrokerFinancials(resolvedTicker, exchange, context));
+    const fallback = await this.fetchProviderFinancials(resolvedTicker, exchange, context);
     const merged = mergeFinancials(brokerResult?.value ?? null, fallback?.value ?? null);
     if (!merged) {
-      throw new Error(`No provider available for ${ticker}`);
+      throw new Error(`No provider available for ${resolvedTicker}`);
     }
     return merged;
   }
 
   async getQuote(ticker: string, exchange?: string, context?: MarketDataRequestContext): Promise<Quote> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
     const variantKeys = this.getTickerVariantCandidates(exchange);
     const sourceKeys = [
       ...this.getBrokerCandidatesForContext(context, false).map((candidate) => this.brokerSourceKey(candidate)),
@@ -336,15 +382,15 @@ export class ProviderRouter implements DataProvider {
       return cached.value;
     }
 
-    const brokerQuote = await withBrokerTimeout(this.fetchBrokerQuote(ticker, exchange, context));
+    const brokerQuote = await withBrokerTimeout(this.fetchBrokerQuote(resolvedTicker, exchange, context));
     if (brokerQuote) return brokerQuote.value;
 
-    const providerQuote = await this.fetchProviderQuote(ticker, exchange, context);
+    const providerQuote = await this.fetchProviderQuote(resolvedTicker, exchange, context);
     if (providerQuote) {
       return providerQuote.value;
     }
     if (cached) return cached.value;
-    throw new Error(`No quote provider available for ${ticker}`);
+    throw new Error(`No quote provider available for ${resolvedTicker}`);
   }
 
   async getExchangeRate(fromCurrency: string): Promise<number> {
@@ -418,7 +464,8 @@ export class ProviderRouter implements DataProvider {
   }
 
   async getNews(ticker: string, count = 15, exchange?: string, context?: MarketDataRequestContext): Promise<NewsItem[]> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
     const variantKeys = [
       buildVariantKey([["exchange", normalizeExchange(exchange)], ["count", count]]),
       buildVariantKey([["count", count]]),
@@ -426,15 +473,15 @@ export class ProviderRouter implements DataProvider {
     ];
     const cached = this.selectCachedResource<NewsItem[]>("news", entityKey, variantKeys, this.getProviderSourceKeys(), false);
     if (cached) {
-      this.scheduleRevalidation(this.makeRevalidationKey("news", ticker, exchange, context, count), async () => {
-        await this.revalidateNews(ticker, count, exchange, context);
+      this.scheduleRevalidation(this.makeRevalidationKey("news", resolvedTicker, exchange, context, count), async () => {
+        await this.revalidateNews(resolvedTicker, count, exchange, context);
       });
       return cached.value;
     }
 
-    const result = await this.firstProvider((provider) => provider.getNews(ticker, count, exchange, context));
+    const result = await this.firstProvider((provider) => provider.getNews(resolvedTicker, count, exchange, context));
     if (!result) {
-      throw new Error(`No news provider available for ${ticker}`);
+      throw new Error(`No news provider available for ${resolvedTicker}`);
     }
     const provider = this.resolveProviderBySourceKey(result.sourceKey);
     if (provider) {
@@ -444,7 +491,8 @@ export class ProviderRouter implements DataProvider {
   }
 
   async getSecFilings(ticker: string, count = 15, exchange?: string, context?: MarketDataRequestContext): Promise<SecFilingItem[]> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
     const variantKeys = [
       buildVariantKey([["exchange", normalizeExchange(exchange)], ["count", count]]),
       buildVariantKey([["count", count]]),
@@ -452,15 +500,15 @@ export class ProviderRouter implements DataProvider {
     ];
     const cached = this.selectCachedResource<SecFilingItem[]>("sec-filings", entityKey, variantKeys, this.getProviderSourceKeys(), false);
     if (cached) {
-      this.scheduleRevalidation(this.makeRevalidationKey("sec-filings", ticker, exchange, context, count), async () => {
-        await this.revalidateSecFilings(ticker, count, exchange, context);
+      this.scheduleRevalidation(this.makeRevalidationKey("sec-filings", resolvedTicker, exchange, context, count), async () => {
+        await this.revalidateSecFilings(resolvedTicker, count, exchange, context);
       });
       return cached.value;
     }
 
-    const result = await this.fetchProviderSecFilings(ticker, count, exchange, context);
+    const result = await this.fetchProviderSecFilings(resolvedTicker, count, exchange, context);
     if (!result) {
-      throw new Error(`No SEC filings provider available for ${ticker}`);
+      throw new Error(`No SEC filings provider available for ${resolvedTicker}`);
     }
     return result.value;
   }
@@ -504,32 +552,30 @@ export class ProviderRouter implements DataProvider {
   }
 
   async getPriceHistory(ticker: string, exchange: string, range: TimeRange, context?: MarketDataRequestContext): Promise<PricePoint[]> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
-    const variantKeys = [
-      buildVariantKey([["exchange", normalizeExchange(exchange)], ["range", range]]),
-      buildVariantKey([["range", range]]),
-    ];
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
+    const variantKey = buildVariantKey([["exchange", normalizeExchange(exchange)], ["range", range]]);
     const sourceKeys = [
       ...this.getBrokerCandidatesForContext(context, false).map((candidate) => this.brokerSourceKey(candidate)),
       ...this.getProviderSourceKeys(),
     ];
-    const cached = this.selectCachedArrayResource<PricePoint>("price-history", entityKey, variantKeys, sourceKeys, false);
+    const cached = this.selectCachedArrayResource<PricePoint>("price-history", entityKey, [variantKey], sourceKeys, false);
     const cachedValue = cached ? normalizePriceHistory(cached.value) : [];
     const forceRefresh = context?.cacheMode === "refresh";
     if (cachedValue.length > 0 && !forceRefresh && cached && !cached.stale) {
       return cachedValue;
     }
 
-    const brokerHistory = await withBrokerTimeout(this.fetchBrokerPriceHistory(ticker, exchange, range, context));
+    const brokerHistory = await withBrokerTimeout(this.fetchBrokerPriceHistory(resolvedTicker, exchange, range, context));
     if (brokerHistory && brokerHistory.value.length > 0) return brokerHistory.value;
 
-    const providerHistory = await this.fetchProviderPriceHistory(ticker, exchange, range, context);
+    const providerHistory = await this.fetchProviderPriceHistory(resolvedTicker, exchange, range, context);
     if (providerHistory && providerHistory.value.length > 0) {
       return providerHistory.value;
     }
     if (cachedValue.length > 0) return cachedValue;
     if (!providerHistory) {
-      throw new Error(`No history provider available for ${ticker}`);
+      throw new Error(`No history provider available for ${resolvedTicker}`);
     }
     return providerHistory.value;
   }
@@ -541,7 +587,8 @@ export class ProviderRouter implements DataProvider {
     resolution: ManualChartResolution,
     context?: MarketDataRequestContext,
   ): Promise<PricePoint[]> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
     const variantKeys = [
       buildVariantKey([["exchange", normalizeExchange(exchange)], ["range", bufferRange], ["resolution", resolution]]),
       buildVariantKey([["range", bufferRange], ["resolution", resolution]]),
@@ -557,16 +604,16 @@ export class ProviderRouter implements DataProvider {
       return cachedValue;
     }
 
-    const brokerHistory = await withBrokerTimeout(this.fetchBrokerPriceHistoryForResolution(ticker, exchange, bufferRange, resolution, context));
+    const brokerHistory = await withBrokerTimeout(this.fetchBrokerPriceHistoryForResolution(resolvedTicker, exchange, bufferRange, resolution, context));
     if (brokerHistory && brokerHistory.value.length > 0) return brokerHistory.value;
 
-    const providerHistory = await this.fetchProviderPriceHistoryForResolution(ticker, exchange, bufferRange, resolution, context);
+    const providerHistory = await this.fetchProviderPriceHistoryForResolution(resolvedTicker, exchange, bufferRange, resolution, context);
     if (providerHistory && providerHistory.value.length > 0) {
       return providerHistory.value;
     }
     if (cachedValue.length > 0) return cachedValue;
     if (!providerHistory) {
-      throw new Error(`No resolution-aware history provider available for ${ticker}`);
+      throw new Error(`No resolution-aware history provider available for ${resolvedTicker}`);
     }
     return providerHistory.value;
   }
@@ -576,11 +623,12 @@ export class ProviderRouter implements DataProvider {
     exchange?: string,
     context?: MarketDataRequestContext,
   ): Promise<ChartResolutionSupport[]> {
-    const brokerSupport = await withBrokerTimeout(this.fetchBrokerChartResolutionSupport(ticker, exchange, context));
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const brokerSupport = await withBrokerTimeout(this.fetchBrokerChartResolutionSupport(resolvedTicker, exchange, context));
     if (brokerSupport && brokerSupport.value.length > 0) {
       return brokerSupport.value;
     }
-    const providerSupport = await this.fetchProviderChartResolutionSupport(ticker, exchange, context);
+    const providerSupport = await this.fetchProviderChartResolutionSupport(resolvedTicker, exchange, context);
     return providerSupport?.value ?? [];
   }
 
@@ -589,7 +637,8 @@ export class ProviderRouter implements DataProvider {
     exchange?: string,
     context?: MarketDataRequestContext,
   ): Promise<ManualChartResolution[]> {
-    const support = await this.getChartResolutionSupport(ticker, exchange, context);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const support = await this.getChartResolutionSupport(resolvedTicker, exchange, context);
     return support.map((entry) => entry.resolution);
   }
 
@@ -601,7 +650,8 @@ export class ProviderRouter implements DataProvider {
     barSize: string,
     context?: MarketDataRequestContext,
   ): Promise<PricePoint[]> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
     const variantKeys = [
       buildVariantKey([["exchange", normalizeExchange(exchange)], ["start", compactDate(startDate)], ["end", compactDate(endDate)], ["bar", barSize]]),
       buildVariantKey([["start", compactDate(startDate)], ["end", compactDate(endDate)], ["bar", barSize]]),
@@ -617,10 +667,10 @@ export class ProviderRouter implements DataProvider {
       return cachedValue;
     }
 
-    const brokerResult = await withBrokerTimeout(this.fetchBrokerDetailedPriceHistory(ticker, exchange, startDate, endDate, barSize, context));
+    const brokerResult = await withBrokerTimeout(this.fetchBrokerDetailedPriceHistory(resolvedTicker, exchange, startDate, endDate, barSize, context));
     if (brokerResult && brokerResult.value.length > 0) return brokerResult.value;
 
-    const providerResult = await this.fetchProviderDetailedPriceHistory(ticker, exchange, startDate, endDate, barSize, context);
+    const providerResult = await this.fetchProviderDetailedPriceHistory(resolvedTicker, exchange, startDate, endDate, barSize, context);
     if (providerResult && providerResult.value.length > 0) {
       return providerResult.value;
     }
@@ -628,7 +678,8 @@ export class ProviderRouter implements DataProvider {
   }
 
   async getOptionsChain(ticker: string, exchange?: string, expirationDate?: number, context?: MarketDataRequestContext): Promise<OptionsChain> {
-    const entityKey = this.getEntityKey(ticker, exchange, context?.instrument);
+    const resolvedTicker = await this.resolveTicker(ticker, exchange);
+    const entityKey = this.getEntityKey(resolvedTicker, exchange, context?.instrument);
     const variantKeys = [
       buildVariantKey([["exchange", normalizeExchange(exchange)], ["expiration", expirationDate ?? "default"]]),
       buildVariantKey([["expiration", expirationDate ?? "default"]]),
@@ -640,18 +691,18 @@ export class ProviderRouter implements DataProvider {
     ];
     const cached = this.selectCachedResource<OptionsChain>("options-chain", entityKey, variantKeys, sourceKeys, false);
     if (cached) {
-      this.scheduleRevalidation(this.makeRevalidationKey("options-chain", ticker, exchange, context, expirationDate ?? "default"), async () => {
-        await this.revalidateOptionsChain(ticker, exchange, expirationDate, context);
+      this.scheduleRevalidation(this.makeRevalidationKey("options-chain", resolvedTicker, exchange, context, expirationDate ?? "default"), async () => {
+        await this.revalidateOptionsChain(resolvedTicker, exchange, expirationDate, context);
       });
       return cached.value;
     }
 
-    const brokerChain = await withBrokerTimeout(this.fetchBrokerOptionsChain(ticker, exchange, expirationDate, context));
+    const brokerChain = await withBrokerTimeout(this.fetchBrokerOptionsChain(resolvedTicker, exchange, expirationDate, context));
     if (brokerChain) return brokerChain.value;
 
-    const providerChain = await this.fetchProviderOptionsChain(ticker, exchange, expirationDate, context);
+    const providerChain = await this.fetchProviderOptionsChain(resolvedTicker, exchange, expirationDate, context);
     if (!providerChain) {
-      throw new Error(`No options provider available for ${ticker}`);
+      throw new Error(`No options provider available for ${resolvedTicker}`);
     }
     return providerChain.value;
   }
