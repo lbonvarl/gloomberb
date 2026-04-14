@@ -261,6 +261,7 @@ export async function syncBrokerInstance({
   existingTickers,
   resources,
   persistResolvedIbkrConnection = false,
+  dataProvider,
 }: SyncBrokerInstanceArgs): Promise<SyncBrokerInstanceResult> {
   const instance = getBrokerInstance(config.brokerInstances, instanceId);
   if (!instance) {
@@ -307,7 +308,7 @@ export async function syncBrokerInstance({
     ]),
   );
 
-  const positions = await broker.importPositions(instance, args.dataProvider);
+  const positions = await broker.importPositions(instance, dataProvider);
 
   let nextConfig = config;
   const accountIds = new Set<string>();
