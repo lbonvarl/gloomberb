@@ -28,7 +28,7 @@ This reuses the Rust Finary client and Clerk authentication flow that already wo
 - `Finterm Path`: path to the local `finterm` checkout. Default: `~/Dev/finterm`
 - `Email`: Finary login email
 - `Password`: Finary login password
-- `TOTP Secret`: either:
+- `TOTP Secret` (plain text): either:
   - a TOTP secret, or
   - a 6-digit current TOTP code
 
@@ -50,7 +50,7 @@ The Rust bridge now accepts either form for MFA.
 
 ## Current issues
 
-- broker setup/edit UX has been fragile in the command bar; text/password rendering has been adjusted multiple times and should be treated as an active area
+- broker setup/edit UX in the command bar has stabilized; only the Password field uses the masked overlay, all other fields use plain text rendering
 - manual sync failures still need better stderr surfacing from the Rust bridge into Gloomberb's debug log
 - some Finary symbols still produce `No provider available` if the user later focuses them directly in ticker panes; skipping import-time refresh reduced the main churn but did not solve unsupported symbol lookup globally
 - onboarding / reconnect flows with multiple old Finary broker instances may still create confusing retry patterns

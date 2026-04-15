@@ -13,8 +13,7 @@ Project context from recent Finary work:
 - Finary broker accounts with zero imported positions are pruned during sync and should not remain as empty portfolios.
 - Import-time quote refresh is skipped for `exchange: "FINARY"` symbols because many are not resolvable by current providers.
 - There is a short Finary snapshot cache in Gloomberb to avoid repeated Rust exports during startup and immediate retries.
-- The command-bar broker field rendering regressed during this work; prefer the normal `TextField` path over custom overlay behavior unless strictly necessary.
+- The command-bar broker field rendering is now fixed: only the Password field uses the masked overlay; Email, TOTP, and Finterm Path use plain text rendering.
 - Known open issues remain around:
-  - broker setup/edit UX for Finary credentials
   - surfacing full Rust stderr from failed exports
   - unsupported direct quote lookups for some imported Finary symbols

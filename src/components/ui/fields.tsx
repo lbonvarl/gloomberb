@@ -71,6 +71,8 @@ export function TextField({
   const visibleBefore = visibleDisplay.slice(0, visibleCursorOffset);
   const visibleCursorChar = visibleDisplay[visibleCursorOffset] ?? " ";
   const visibleAfter = visibleDisplay.slice(visibleCursorOffset + (visibleCursorOffset < visibleDisplay.length ? 1 : 0));
+  const overlayContentLength = visibleBefore.length + 1 + visibleAfter.length;
+  const overlayPad = " ".repeat(Math.max(0, (width ?? 0) - overlayContentLength));
 
   return (
     <box flexDirection="column">
@@ -116,6 +118,7 @@ export function TextField({
             top={0}
             height={1}
             width={width}
+            backgroundColor={backgroundColor}
             onMouseDown={() => {
               onMouseDown?.();
               resolvedInputRef.current?.focus?.();
@@ -127,6 +130,7 @@ export function TextField({
                 <span bg={visibleTextColor} fg={backgroundColor}>{visibleCursorChar}</span>
               )}
               {focused ? visibleAfter : visibleDisplay.slice(visibleBefore.length)}
+              {overlayPad}
             </text>
           </box>
         )}

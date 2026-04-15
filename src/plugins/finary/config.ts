@@ -32,7 +32,7 @@ export const FINARY_CONFIG_FIELDS: BrokerConfigField[] = [
   {
     key: "totpSecret",
     label: "TOTP Secret",
-    type: "password",
+    type: "text",
     required: false,
     placeholder: "Optional base32 MFA secret",
   },

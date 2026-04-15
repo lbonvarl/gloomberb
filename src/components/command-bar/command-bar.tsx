@@ -5102,6 +5102,7 @@ export function CommandBar({
                       width={Math.max(1, barWidth - contentPadding * 2 - 2)}
                       placeholder={field.placeholder}
                       focused={active && !currentRoute.pending}
+                      showDisplayOverlay
                       onChange={(nextValue) => updateWorkflowValue(field.id, nextValue)}
                       onSubmit={() => {
                         const index = visibleFields.findIndex((entry) => entry.id === field.id);
