@@ -2,6 +2,7 @@ import type { Quote, TickerFinancials, PricePoint, OptionsChain } from "./financ
 import type { TimeRange } from "../components/chart/chart-types";
 import type { ChartResolutionSupport, ManualChartResolution } from "../components/chart/chart-resolution";
 import type { BrokerInstanceConfig } from "./config";
+import type { DataProvider } from "./data-provider";
 import type { QuoteSubscriptionTarget } from "./data-provider";
 import type { BrokerContractRef, InstrumentSearchResult } from "./instrument";
 import type { BrokerAccount, BrokerExecution, BrokerOrder, BrokerOrderPreview, BrokerOrderRequest } from "./trading";
@@ -71,7 +72,7 @@ export interface BrokerAdapter {
   readonly pruneEmptyAccounts?: boolean;
   readonly cachePolicy?: CachePolicyMap;
   validate(instance: BrokerInstanceConfig): Promise<boolean>;
-  importPositions(instance: BrokerInstanceConfig): Promise<BrokerPosition[]>;
+  importPositions(instance: BrokerInstanceConfig, dataProvider?: DataProvider): Promise<BrokerPosition[]>;
   configSchema: BrokerConfigField[];
   connect?(instance: BrokerInstanceConfig): Promise<void>;
   disconnect?(instance: BrokerInstanceConfig): Promise<void>;

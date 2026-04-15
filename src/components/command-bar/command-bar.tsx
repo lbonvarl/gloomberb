@@ -5099,6 +5099,7 @@ export function CommandBar({
                       inputRef={getInputRef(workflowInputRefs.current, field.id) as RefObject<InputRenderable | null>}
                       type={field.type === "password" ? "password" : "text"}
                       value={coerceFieldString(value)}
+                      width={Math.max(1, barWidth - contentPadding * 2 - 2)}
                       placeholder={field.placeholder}
                       focused={active && !currentRoute.pending}
                       onChange={(nextValue) => updateWorkflowValue(field.id, nextValue)}

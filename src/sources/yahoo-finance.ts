@@ -2,11 +2,13 @@ import type { Quote, Fundamentals, FinancialStatement, PricePoint, TickerFinanci
 import type { DataProvider, EarningsEvent, MarketDataRequestContext, NewsItem, SecFilingItem } from "../types/data-provider";
 import type { TimeRange } from "../components/chart/chart-types";
 import {
+  getBestSupportedResolutionForPreset,
   normalizeChartResolutionSupport,
   type ChartResolutionSupport,
   type ManualChartResolution,
 } from "../components/chart/chart-resolution";
 import type { InstrumentSearchResult } from "../types/instrument";
+import { isIsin } from "../utils/format";
 import { SecEdgarClient } from "./sec-edgar";
 
 // Exchange suffix mapping for Yahoo Finance ticker symbols
@@ -295,6 +297,11 @@ const YAHOO_RESOLUTION_SUPPORT = normalizeChartResolutionSupport([
   { resolution: "1wk", maxRange: "ALL" },
   { resolution: "1mo", maxRange: "ALL" },
 ]);
+
+function normalizeYahooResolution(bufferRange: TimeRange, resolution: ManualChartResolution): ManualChartResolution {
+  const requested = resolution === "30m" || resolution === "45m" ? "1h" : resolution;
+  return getBestSupportedResolutionForPreset(bufferRange, YAHOO_RESOLUTION_SUPPORT, requested) ?? requested;
+}
 
 export class YahooFinanceClient implements DataProvider {
   readonly id = "yahoo";
@@ -1005,7 +1012,7 @@ export class YahooFinanceClient implements DataProvider {
     _context?: MarketDataRequestContext,
   ): Promise<PricePoint[]> {
     const params = RANGE_PARAMS[bufferRange];
-    return this.loadPriceHistory(ticker, exchange, params.range, resolution);
+    return this.loadPriceHistory(ticker, exchange, params.range, normalizeYahooResolution(bufferRange, resolution));
   }
 
   // ── Options Chain ──────────────────────────────────────────────────

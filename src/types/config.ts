@@ -125,7 +125,7 @@ const TICKER_PANE_IDS = new Set([
 ]);
 
 export const DEFAULT_COLUMNS: ColumnConfig[] = [
-  { id: "ticker", label: "TICKER", width: 8, align: "left" },
+  { id: "ticker", label: "TICKER", width: 16, align: "left" },
   { id: "price", label: "LAST", width: 10, align: "right", format: "currency" },
   { id: "change_pct", label: "CHG%", width: 8, align: "right", format: "percent" },
   { id: "market_cap", label: "MCAP", width: 10, align: "right", format: "compact" },

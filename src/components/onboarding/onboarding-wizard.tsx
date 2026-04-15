@@ -6,6 +6,7 @@ import { colors, applyTheme } from "../../theme/colors";
 import { themes, getThemeIds } from "../../theme/themes";
 import { saveConfig } from "../../data/config-store";
 import type { AppConfig } from "../../types/config";
+import type { DataProvider } from "../../types/data-provider";
 import type { PluginRegistry } from "../../plugins/registry";
 import { resolveBrokerConfigFields, type BrokerAdapter, type BrokerConfigField } from "../../types/broker";
 import { buildIbkrConfigFromValues } from "../../plugins/ibkr/config";
@@ -18,6 +19,7 @@ import { TextField, ExternalLink } from "../ui";
 
 interface OnboardingWizardProps {
   config: AppConfig;
+  dataProvider: DataProvider;
   pluginRegistry: PluginRegistry;
   onComplete: (config: AppConfig) => void | Promise<void>;
 }
@@ -106,7 +108,7 @@ function focusPortfolioListCollection(config: AppConfig, collectionId: string): 
   };
 }
 
-export function OnboardingWizard({ config, pluginRegistry, onComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ config, dataProvider, pluginRegistry, onComplete }: OnboardingWizardProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions();
   const [step, setStep] = useState<Step>("welcome");
   const [themeIdx, setThemeIdx] = useState(0);
@@ -280,6 +282,7 @@ export function OnboardingWizard({ config, pluginRegistry, onComplete }: Onboard
         brokers: pluginRegistry.brokers,
         tickerRepository: pluginRegistry.tickerRepository,
         resources: pluginRegistry.persistence.resources,
+        dataProvider,
         persistResolvedIbkrConnection: true,
       });
       if (brokerSyncAttemptRef.current !== attemptId) {
@@ -318,6 +321,7 @@ export function OnboardingWizard({ config, pluginRegistry, onComplete }: Onboard
     buildDraftBrokerConfig,
     nextStep,
     pluginRegistry.brokers,
+    dataProvider,
     pluginRegistry.persistence.resources,
     pluginRegistry.tickerRepository,
     selectedBrokerId,

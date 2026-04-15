@@ -5,6 +5,7 @@ import { buildPersistedIbkrGatewayConfig } from "../plugins/ibkr/config";
 import { ibkrGatewayManager } from "../plugins/ibkr/gateway-service";
 import type { BrokerAdapter, BrokerPosition } from "../types/broker";
 import type { AppConfig, BrokerInstanceConfig } from "../types/config";
+import type { DataProvider } from "../types/data-provider";
 import type { BrokerContractRef } from "../types/instrument";
 import type { BrokerAccount } from "../types/trading";
 import type { TickerMetadata, TickerPosition, TickerRecord } from "../types/ticker";
@@ -17,6 +18,7 @@ export interface SyncBrokerInstanceArgs {
   tickerRepository: TickerRepository;
   existingTickers?: Map<string, TickerRecord>;
   resources?: ResourceStore;
+  dataProvider?: DataProvider;
   persistResolvedIbkrConnection?: boolean;
 }
 
@@ -253,6 +255,18 @@ function updateExistingTicker(
   return ticker;
 }
 
+function syncTickerPortfolioRefs(ticker: TickerRecord): void {
+  const nonBrokerPortfolios = ticker.metadata.portfolios.filter((portfolioId) => !portfolioId.startsWith("broker:"));
+  const portfoliosFromPositions = ticker.metadata.positions.map((position) => position.portfolio);
+  ticker.metadata.portfolios = [...new Set([...nonBrokerPortfolios, ...portfoliosFromPositions])];
+}
+
+function isOrphanedImportedTicker(ticker: TickerRecord): boolean {
+  return ticker.metadata.positions.length === 0
+    && ticker.metadata.watchlists.length === 0
+    && ticker.metadata.portfolios.every((portfolioId) => portfolioId.startsWith("broker:"));
+}
+
 export async function syncBrokerInstance({
   config,
   instanceId,
@@ -342,6 +356,13 @@ export async function syncBrokerInstance({
       }
       return true;
     });
+    syncTickerPortfolioRefs(ticker);
+  }
+
+  for (const [symbol, ticker] of tickers) {
+    if (!isOrphanedImportedTicker(ticker)) continue;
+    await tickerRepository.deleteTicker(symbol);
+    tickers.delete(symbol);
   }
 
   const portfolioIds: string[] = [];
@@ -408,6 +429,7 @@ export async function syncBrokerInstance({
       addedTickers.set(position.ticker, ticker);
     } else {
       ticker = updateExistingTicker(ticker, instance, portfolioId, position, positionEntry, brokerContract);
+      syncTickerPortfolioRefs(ticker);
       await tickerRepository.saveTicker(ticker);
       if (!addedTickers.has(position.ticker)) {
         updatedTickers.set(position.ticker, ticker);

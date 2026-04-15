@@ -70,6 +70,20 @@ function truncate(value: string, length = 500): string {
   return trimmed.length > length ? `${trimmed.slice(0, length)}...` : trimmed;
 }
 
+function formatFailureSection(label: string, value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return `${label}: ${truncate(trimmed)}`;
+}
+
+export function buildFintermFailureMessage(exitCode: number, stdout: string, stderr: string): string {
+  const sections = [
+    formatFailureSection("stderr", stderr),
+    formatFailureSection("stdout", stdout),
+  ].filter((value): value is string => value != null);
+  return sections.join(" | ") || `finterm export failed with exit code ${exitCode}`;
+}
+
 function getSnapshotCachePath(instance: BrokerInstanceConfig): string {
   const dataDir = instance.config?.dataDir;
   const root = typeof dataDir === "string" && dataDir.trim() ? dataDir.trim() : "/Users/loic.bonvarlet/.gloomberb";
@@ -150,12 +164,13 @@ export async function loadFintermFinaryPortfolio(instance: BrokerInstanceConfig)
   ]);
 
   if (exitCode !== 0) {
-    const summary = truncate(stderr || stdout || `finterm export failed with exit code ${exitCode}`);
+    const summary = buildFintermFailureMessage(exitCode, stdout, stderr);
     finaryRustLog.error("finterm export failed", {
       exitCode,
-      stderr: summary || undefined,
+      stderr: truncate(stderr) || undefined,
+      stdout: truncate(stdout) || undefined,
     });
-    const message = summary || `finterm export failed with exit code ${exitCode}`;
+    const message = summary;
     failedInvocations.set(instance.id, { failedAt: Date.now(), message });
     throw new Error(message);
   }

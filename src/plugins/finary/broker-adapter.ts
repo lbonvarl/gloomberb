@@ -17,7 +17,7 @@ export const finaryBroker: BrokerAdapter = {
     return new FinaryClient(instance).listAccounts();
   },
 
-  async importPositions(instance) {
-    return new FinaryClient(instance).importPositions();
+  async importPositions(instance, dataProvider) {
+    return new FinaryClient(instance).importPositions(dataProvider);
   },
 };

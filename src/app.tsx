@@ -495,6 +495,7 @@ function AppInner({ pluginRegistry, tickerRepository, dataProvider, marketData, 
       tickerRepository,
       existingTickers: tickerMap ?? new Map(state.tickers),
       resources: pluginRegistry.persistence.resources,
+      dataProvider,
     });
 
     dispatch({ type: "SET_BROKER_ACCOUNTS", instanceId, accounts: result.brokerAccounts });
@@ -1437,6 +1438,7 @@ export function App({
     return (
       <OnboardingWizard
         config={config}
+        dataProvider={services.dataProvider}
         pluginRegistry={services.pluginRegistry}
         onComplete={(updatedConfig) => {
           setConfig(updatedConfig);

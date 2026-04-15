@@ -37,4 +37,44 @@ describe("YahooFinanceClient exchange aliases", () => {
     });
     expect(history[0]?.close).toBe(200);
   });
+
+  test("normalizes unsupported 45m requests to a supported yahoo interval", async () => {
+    const provider = new YahooFinanceClient() as any;
+    let request: { symbol: string; range: string; interval: string } | null = null;
+    provider.fetchChart = async (symbol: string, range: string, interval: string) => {
+      request = { symbol, range, interval };
+      return {
+        meta: { currency: "USD" },
+        history: [{ date: new Date("2026-03-30T00:00:00Z"), close: 200 }],
+      };
+    };
+
+    await provider.getPriceHistoryForResolution("AAPL", "NASDAQ", "3M", "45m");
+
+    expect(request).toEqual({
+      symbol: "AAPL",
+      range: "3mo",
+      interval: "1h",
+    });
+  });
+
+  test("falls back to daily candles when intraday resolution exceeds yahoo range support", async () => {
+    const provider = new YahooFinanceClient() as any;
+    let request: { symbol: string; range: string; interval: string } | null = null;
+    provider.fetchChart = async (symbol: string, range: string, interval: string) => {
+      request = { symbol, range, interval };
+      return {
+        meta: { currency: "USD" },
+        history: [{ date: new Date("2026-03-30T00:00:00Z"), close: 200 }],
+      };
+    };
+
+    await provider.getPriceHistoryForResolution("AAPL", "NASDAQ", "1Y", "30m");
+
+    expect(request).toEqual({
+      symbol: "AAPL",
+      range: "1y",
+      interval: "1d",
+    });
+  });
 });
